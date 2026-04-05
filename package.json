@@ -1,0 +1,141 @@
+{
+  "name": "repolens",
+  "displayName": "RepoLens",
+  "description": "Use any GitHub repository as RAG context for Copilot — query codebases, docs, and institutional knowledge without leaving VS Code.",
+  "version": "0.1.0",
+  "publisher": "repolens",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "copilot",
+    "rag",
+    "github",
+    "context",
+    "search"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "repoLens.addRepository",
+        "title": "RepoLens: Add Repository"
+      },
+      {
+        "command": "repoLens.removeRepository",
+        "title": "RepoLens: Remove Repository"
+      },
+      {
+        "command": "repoLens.syncDataSource",
+        "title": "RepoLens: Sync Data Source"
+      },
+      {
+        "command": "repoLens.syncAllDataSources",
+        "title": "RepoLens: Sync All Data Sources"
+      },
+      {
+        "command": "repoLens.setApiKey",
+        "title": "RepoLens: Set OpenAI API Key"
+      },
+      {
+        "command": "repoLens.editTool",
+        "title": "RepoLens: Edit Tool"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "repoLens",
+          "title": "RepoLens",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "repoLens": [
+        {
+          "id": "repoLens.dataSources",
+          "name": "Data Sources"
+        },
+        {
+          "id": "repoLens.tools",
+          "name": "Tools"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "RepoLens",
+      "properties": {
+        "repoLens.embedding.provider": {
+          "type": "string",
+          "enum": [
+            "openai"
+          ],
+          "default": "openai",
+          "description": "Embedding provider to use for indexing."
+        },
+        "repoLens.embedding.openai.model": {
+          "type": "string",
+          "default": "text-embedding-3-small",
+          "description": "OpenAI embedding model to use."
+        },
+        "repoLens.embedding.openai.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "Base URL for OpenAI-compatible API (for proxies or compatible services)."
+        },
+        "repoLens.search.topK": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of chunks to return per tool query."
+        },
+        "repoLens.sync.onStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically sync data sources marked 'onStartup' when VS Code launches."
+        },
+        "repoLens.log.level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info",
+          "description": "Logging verbosity."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint src/",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "sqlite-vec": "^0.1.6",
+    "tiktoken": "^1.0.18",
+    "minimatch": "^10.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.99.0",
+    "typescript": "^5.7.0",
+    "eslint": "^9.0.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

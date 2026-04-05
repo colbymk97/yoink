@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoLens Configuration",
+  "type": "object",
+  "required": ["version", "dataSources", "tools", "defaultExcludePatterns"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Config schema version"
+    },
+    "dataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id", "repoUrl", "owner", "repo", "branch",
+          "includePatterns", "excludePatterns", "syncSchedule", "status"
+        ],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "repoUrl": { "type": "string", "pattern": "^https://github\\.com/.+/.+" },
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "branch": { "type": "string" },
+          "includePatterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "excludePatterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "syncSchedule": {
+            "type": "string",
+            "enum": ["manual", "onStartup", "daily"]
+          },
+          "lastSyncedAt": { "type": ["string", "null"], "format": "date-time" },
+          "lastSyncCommitSha": { "type": ["string", "null"] },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "indexing", "ready", "error"]
+          },
+          "errorMessage": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "dataSourceIds"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_]{1,64}$"
+          },
+          "description": { "type": "string" },
+          "dataSourceIds": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "defaultExcludePatterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}
