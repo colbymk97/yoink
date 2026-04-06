@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { parseRepoUrl, GitHubResolver } from '../../sources/github/githubResolver';
+import { parseRepoUrl, isRepoUrlResult, GitHubResolver } from '../../sources/github/githubResolver';
 import { RepoBrowser } from '../../sources/github/repoBrowser';
 import { DataSourceManager, AddDataSourceOptions } from '../../sources/dataSourceManager';
 import { DEFAULT_EXCLUDE_PATTERNS, ToolConfig } from '../../config/configSchema';
@@ -114,11 +114,15 @@ export class AddRepoWizard {
       const url = await vscode.window.showInputBox({
         prompt: 'GitHub repository URL',
         placeHolder: 'https://github.com/owner/repo',
-        validateInput: (v) => (parseRepoUrl(v) ? null : 'Enter a valid GitHub repo URL'),
+        validateInput: (v) => {
+          const result = parseRepoUrl(v);
+          return isRepoUrlResult(result) ? null : result.error;
+        },
         ignoreFocusOut: true,
       });
       if (!url) return undefined;
-      return parseRepoUrl(url) ?? undefined;
+      const result = parseRepoUrl(url);
+      return isRepoUrlResult(result) ? result : undefined;
     }
 
     // Browse repos

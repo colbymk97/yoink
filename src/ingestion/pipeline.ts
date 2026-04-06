@@ -66,7 +66,10 @@ export class IngestionPipeline implements vscode.Disposable {
       this.syncStore.startSync(syncId, dataSourceId, commitSha);
 
       // Fetch file tree
-      const tree = await this.fetcher.getTree(ds.owner, ds.repo, commitSha);
+      const { entries: tree, truncated } = await this.fetcher.getTree(ds.owner, ds.repo, commitSha);
+      if (truncated) {
+        this.logger.warn(`File tree for ${ds.owner}/${ds.repo} was truncated by GitHub API`);
+      }
 
       // Filter files
       const filter = new FileFilter(
