@@ -48,8 +48,42 @@
       {
         "command": "repoLens.editTool",
         "title": "RepoLens: Edit Tool"
+      },
+      {
+        "command": "repoLens.syncDataSourceFromTree",
+        "title": "Sync",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "repoLens.removeDataSourceFromTree",
+        "title": "Remove",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "repoLens.editToolFromTree",
+        "title": "Edit",
+        "icon": "$(edit)"
       }
     ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "repoLens.syncDataSourceFromTree",
+          "when": "view == repoLens.dataSources && viewItem == dataSource",
+          "group": "inline"
+        },
+        {
+          "command": "repoLens.removeDataSourceFromTree",
+          "when": "view == repoLens.dataSources && viewItem == dataSource",
+          "group": "inline"
+        },
+        {
+          "command": "repoLens.editToolFromTree",
+          "when": "view == repoLens.tools && viewItem == tool",
+          "group": "inline"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {

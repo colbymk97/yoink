@@ -3,6 +3,7 @@ import { AddRepoWizard } from './wizard/addRepoWizard';
 import { DataSourceManager } from '../sources/dataSourceManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
+import { DataSourceTreeItem, ToolTreeItem } from './sidebar/sidebarTreeItems';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -72,6 +73,40 @@ export function registerCommands(
       if (key) {
         await providerRegistry.setApiKey(key);
         vscode.window.showInformationMessage('OpenAI API key saved.');
+      }
+    }),
+
+    // Tree-item context menu commands
+    vscode.commands.registerCommand('repoLens.syncDataSourceFromTree', async (item: DataSourceTreeItem) => {
+      await dataSourceManager.sync(item.dataSource.id);
+      vscode.window.showInformationMessage(
+        `Sync queued for ${item.dataSource.owner}/${item.dataSource.repo}.`,
+      );
+    }),
+
+    vscode.commands.registerCommand('repoLens.removeDataSourceFromTree', async (item: DataSourceTreeItem) => {
+      const confirm = await vscode.window.showWarningMessage(
+        `Remove ${item.dataSource.owner}/${item.dataSource.repo}? This will delete all indexed data.`,
+        { modal: true },
+        'Remove',
+      );
+      if (confirm === 'Remove') {
+        await dataSourceManager.remove(item.dataSource.id);
+        vscode.window.showInformationMessage(
+          `Removed ${item.dataSource.owner}/${item.dataSource.repo}.`,
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('repoLens.editToolFromTree', async (item: ToolTreeItem) => {
+      const newDescription = await vscode.window.showInputBox({
+        prompt: 'Tool description',
+        value: item.tool.description,
+        ignoreFocusOut: true,
+      });
+      if (newDescription !== undefined) {
+        configManager.updateTool(item.tool.id, { description: newDescription });
+        vscode.window.showInformationMessage(`Updated tool "${item.tool.name}".`);
       }
     }),
 
