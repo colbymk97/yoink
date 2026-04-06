@@ -8,32 +8,94 @@ import {
   createDefaultConfig,
 } from './configSchema';
 
+const DEBOUNCE_MS = 300;
+
 export class ConfigManager implements vscode.Disposable {
   private config: RepoLensConfig;
   private readonly configPath: string;
   private readonly _onDidChange = new vscode.EventEmitter<RepoLensConfig>();
   readonly onDidChange = this._onDidChange.event;
 
+  private debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private fileWatcher: vscode.FileSystemWatcher | undefined;
+  private suppressNextFileEvent = false;
+
   constructor(globalStorageUri: vscode.Uri) {
     this.configPath = path.join(globalStorageUri.fsPath, 'repolens.json');
     this.config = this.load();
+    this.setupFileWatcher();
   }
 
   private load(): RepoLensConfig {
     try {
       const raw = fs.readFileSync(this.configPath, 'utf-8');
       return JSON.parse(raw) as RepoLensConfig;
-    } catch {
+    } catch (err) {
+      // If the file exists but is corrupt, back it up
+      if (fs.existsSync(this.configPath)) {
+        const backupPath = this.configPath + '.bak';
+        try {
+          fs.copyFileSync(this.configPath, backupPath);
+        } catch {
+          // Best-effort backup
+        }
+      }
       return createDefaultConfig();
     }
   }
 
-  private save(): void {
+  private saveImmediate(): void {
     const dir = path.dirname(this.configPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    this.suppressNextFileEvent = true;
     fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
+    this._onDidChange.fire(this.config);
+  }
+
+  private save(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = undefined;
+      this.saveImmediate();
+    }, DEBOUNCE_MS);
+  }
+
+  /**
+   * Flush any pending debounced writes immediately.
+   */
+  flush(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+      this.saveImmediate();
+    }
+  }
+
+  private setupFileWatcher(): void {
+    try {
+      const pattern = new vscode.RelativePattern(
+        path.dirname(this.configPath),
+        path.basename(this.configPath),
+      );
+      this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+      this.fileWatcher.onDidChange(() => this.onFileChanged());
+      this.fileWatcher.onDidCreate(() => this.onFileChanged());
+    } catch {
+      // File watcher may not be available in all environments
+    }
+  }
+
+  private onFileChanged(): void {
+    if (this.suppressNextFileEvent) {
+      this.suppressNextFileEvent = false;
+      return;
+    }
+    const reloaded = this.load();
+    this.config = reloaded;
     this._onDidChange.fire(this.config);
   }
 
@@ -102,6 +164,10 @@ export class ConfigManager implements vscode.Disposable {
   }
 
   dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.fileWatcher?.dispose();
     this._onDidChange.dispose();
   }
 }
