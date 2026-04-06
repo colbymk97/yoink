@@ -22,7 +22,25 @@ export class DataSourceManager implements vscode.Disposable {
     private readonly pipeline: IngestionPipeline,
   ) {}
 
+  /**
+   * Check if a data source with the same owner/repo/branch already exists.
+   */
+  isDuplicate(owner: string, repo: string, branch: string): boolean {
+    return this.configManager.getDataSources().some(
+      (ds) =>
+        ds.owner.toLowerCase() === owner.toLowerCase() &&
+        ds.repo.toLowerCase() === repo.toLowerCase() &&
+        ds.branch === branch,
+    );
+  }
+
   async add(options: AddDataSourceOptions): Promise<DataSourceConfig> {
+    if (this.isDuplicate(options.owner, options.repo, options.branch)) {
+      throw new Error(
+        `${options.owner}/${options.repo}@${options.branch} is already configured.`,
+      );
+    }
+
     const ds: DataSourceConfig = {
       id: crypto.randomUUID(),
       ...options,
