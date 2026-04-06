@@ -4,17 +4,6 @@ import { ToolHandler } from './toolHandler';
 import { ToolConfig } from '../config/configSchema';
 import { Logger } from '../util/logger';
 
-const TOOL_INPUT_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    query: {
-      type: 'string' as const,
-      description: 'The search query to find relevant code or documentation',
-    },
-  },
-  required: ['query'],
-};
-
 export class ToolManager implements vscode.Disposable {
   private readonly registeredTools = new Map<string, vscode.Disposable>();
   private readonly disposables: vscode.Disposable[] = [];

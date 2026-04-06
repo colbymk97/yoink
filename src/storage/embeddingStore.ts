@@ -68,9 +68,6 @@ export class EmbeddingStore {
   ): EmbeddingSearchResult[] {
     if (dataSourceIds.length === 0) return [];
 
-    // Over-fetch from vec0, then filter. Fetch up to 5x topK to give
-    // enough headroom for filtering by data source.
-    const overFetchLimit = topK * 5;
     const placeholders = dataSourceIds.map(() => '?').join(', ');
 
     // Two-step: KNN search, then filter via chunk table
