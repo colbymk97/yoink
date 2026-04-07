@@ -22,6 +22,16 @@ export class AddRepoWizard {
     // Step 2: Resolve repo metadata
     const metadata = await this.resolver.resolve(repoInput.owner, repoInput.repo);
 
+    // Early duplicate check (against default branch; refined after branch selection)
+    if (this.dataSourceManager.isDuplicate(metadata.owner, metadata.repo, metadata.defaultBranch)) {
+      const proceed = await vscode.window.showWarningMessage(
+        `${metadata.owner}/${metadata.repo}@${metadata.defaultBranch} is already configured.`,
+        'Add with different branch',
+        'Cancel',
+      );
+      if (proceed !== 'Add with different branch') return;
+    }
+
     // Step 3: Pick branch
     const branch = await vscode.window.showInputBox({
       prompt: 'Branch to index',
