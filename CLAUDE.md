@@ -16,6 +16,33 @@ npx vitest run test/unit/storage/database.test.ts
 
 **Note:** Storage tests (`test/unit/storage/`) crash locally on Apple Silicon when Node runs as x64 under Rosetta 2 — `sqlite-vec`'s prebuilt binary uses AVX instructions Rosetta doesn't support. These tests pass on native x86_64 (GitHub CI). Embedding tests always pass.
 
+## Packaging and Local Install
+
+```bash
+npm run build                                    # compile TypeScript first
+npm run package                                  # vsce package → repolens-0.0.1.vsix
+code --install-extension repolens-0.0.1.vsix     # install into VS Code
+```
+
+To uninstall:
+
+```bash
+code --uninstall-extension repolens.repolens
+```
+
+The `--no-dependencies` flag is passed in CI (`npx vsce package --no-dependencies`) to skip bundling node_modules into the VSIX — the extension relies on VS Code's Node runtime, not a bundled tree.
+
+## Releasing
+
+Push a version tag to trigger the release workflow, which builds the VSIX and publishes a GitHub prerelease:
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+The workflow (`.github/workflows/release.yml`) runs on any `v*` tag, packages the VSIX, and attaches it to the GitHub release.
+
 ## Architecture Overview
 
 RepoLens is a VS Code extension that indexes GitHub repositories into a local SQLite vector database and exposes them as Copilot Chat tools.

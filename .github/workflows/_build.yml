@@ -1,0 +1,35 @@
+name: _build
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: Name of the uploaded VSIX artifact
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build and package
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact-name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx vsce package --no-dependencies
+
+      - name: Upload VSIX
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: '*.vsix'
+          retention-days: 7

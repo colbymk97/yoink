@@ -1,0 +1,17 @@
+.github/**
+.vscode-test/**
+node_modules/**
+src/**
+test/**
+docs/**
+dist/test/**
+**/*.map
+**/*.ts
+!**/*.d.ts
+*.vsix
+tsconfig.json
+vitest.config.ts
+eslint.config.mjs
+repolens.json.schema.json
+ARCHITECTURE.md
+CLAUDE.md

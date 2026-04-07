@@ -2,7 +2,7 @@
   "name": "repolens",
   "displayName": "RepoLens",
   "description": "Use any GitHub repository as RAG context for Copilot — query codebases, docs, and institutional knowledge without leaving VS Code.",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "publisher": "repolens",
   "license": "MIT",
   "engines": {
