@@ -30,7 +30,7 @@ export class ConfigManager implements vscode.Disposable {
     try {
       const raw = fs.readFileSync(this.configPath, 'utf-8');
       return JSON.parse(raw) as RepoLensConfig;
-    } catch (err) {
+    } catch {
       // If the file exists but is corrupt, back it up
       if (fs.existsSync(this.configPath)) {
         const backupPath = this.configPath + '.bak';
