@@ -27,7 +27,7 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: npx vsce package --target ${{ matrix.target }}
+      - run: npx vsce package --no-dependencies --target ${{ matrix.target }}
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4

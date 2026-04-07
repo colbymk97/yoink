@@ -157,12 +157,13 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "compile": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "vsce package",
+    "package": "vsce package --no-dependencies",
     "dev:install": "bash scripts/dev-install.sh"
   },
   "dependencies": {
@@ -176,6 +177,7 @@
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.99.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.27.7",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.58.0",

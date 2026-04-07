@@ -42,7 +42,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
 fi
 
 echo "==> Packaging VSIX..."
-npx vsce package --out repolens-dev.vsix
+npx vsce package --no-dependencies --out repolens-dev.vsix
 
 echo "==> Installing extension..."
 "$CODE" --install-extension repolens-dev.vsix --force
