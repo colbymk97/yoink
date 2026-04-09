@@ -171,10 +171,11 @@
       {
         "name": "repolens-search",
         "toolReferenceName": "repolens",
+        "canBeReferencedInPrompt": true,
         "tags": ["repolens", "search", "rag", "github", "codebase"],
         "displayName": "RepoLens: Search Repositories",
         "userDescription": "Search your indexed GitHub repositories for relevant code, documentation, or knowledge.",
-        "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Optionally filter by a specific repository (owner/repo format). Use this whenever the user asks about a specific codebase, library, or repository that may be indexed.",
+        "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Use 'repository' to filter by a specific repo (owner/repo format), or 'tool' to use a configured tool scope. Call repolens-list first to discover available repositories and tools.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -185,9 +186,26 @@
             "repository": {
               "type": "string",
               "description": "Optional: filter to a specific indexed repository in 'owner/repo' format (e.g. 'vercel/next.js'). Omit to search all indexed repositories."
+            },
+            "tool": {
+              "type": "string",
+              "description": "Optional: use a configured RepoLens tool name to search only its assigned repositories. Get available tool names from repolens-list."
             }
           },
           "required": ["query"]
+        }
+      },
+      {
+        "name": "repolens-list",
+        "toolReferenceName": "repolens-list",
+        "canBeReferencedInPrompt": true,
+        "tags": ["repolens", "list", "discover", "repositories"],
+        "displayName": "RepoLens: List Data Sources",
+        "userDescription": "List all indexed GitHub repositories and configured search tools in RepoLens.",
+        "modelDescription": "List all data sources (GitHub repositories) and tools currently indexed and available in RepoLens. Call this first to discover what repositories are available before searching. Returns repository names, branches, status, file/chunk counts, and any configured tool scopes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
         }
       }
     ]

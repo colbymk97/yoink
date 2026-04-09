@@ -16,7 +16,19 @@ export const GLOBAL_SEARCH_TOOL = {
         type: 'string' as const,
         description: 'The search query to find relevant code or documentation',
       },
+      tool: {
+        type: 'string' as const,
+        description:
+          'Optional: use a configured RepoLens tool name to search only its assigned repositories.',
+      },
     },
     required: ['query'],
   },
+};
+
+export const LIST_TOOL = {
+  name: 'repolens-list',
+  displayName: 'RepoLens List',
+  description:
+    'List all indexed data sources and configured tools in RepoLens.',
 };

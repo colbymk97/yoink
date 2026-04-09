@@ -1,26 +1,18 @@
 import * as vscode from 'vscode';
-import { ConfigManager } from '../config/configManager';
 import { ToolHandler } from './toolHandler';
 import { Logger } from '../util/logger';
 
 export class ToolManager implements vscode.Disposable {
   private readonly registeredTools = new Map<string, vscode.Disposable>();
-  private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
-    private readonly configManager: ConfigManager,
     private readonly toolHandler: ToolHandler,
     private readonly logger: Logger,
-  ) {
-    // Re-sync tool registrations when config changes
-    this.disposables.push(
-      configManager.onDidChange(() => this.syncRegistrations()),
-    );
-  }
+  ) {}
 
   registerAll(): void {
     this.registerGlobalSearchTool();
-    this.syncRegistrations();
+    this.registerListTool();
   }
 
   private registerGlobalSearchTool(): void {
@@ -29,7 +21,7 @@ export class ToolManager implements vscode.Disposable {
     const disposable = vscode.lm.registerTool('repolens-search', {
       invoke: async (options, token) => {
         return this.toolHandler.handleGlobalSearch(
-          options as vscode.LanguageModelToolInvocationOptions<{ query: string }>,
+          options as vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string; tool?: string }>,
           token,
         );
       },
@@ -39,44 +31,17 @@ export class ToolManager implements vscode.Disposable {
     this.logger.info('Registered global search tool');
   }
 
-  private syncRegistrations(): void {
-    const configTools = this.configManager.getTools();
-    const desiredNames = new Set(
-      configTools.map((t) => this.registrationName(t.name)),
-    );
+  private registerListTool(): void {
+    if (this.registeredTools.has('__list__')) return;
 
-    // Unregister tools no longer in config
-    for (const [key, disposable] of this.registeredTools) {
-      if (key === '__global__') continue;
-      if (!desiredNames.has(key)) {
-        disposable.dispose();
-        this.registeredTools.delete(key);
-        this.logger.info(`Unregistered tool: ${key}`);
-      }
-    }
+    const disposable = vscode.lm.registerTool('repolens-list', {
+      invoke: async (_options, token) => {
+        return this.toolHandler.handleList(token);
+      },
+    });
 
-    // Register new tools from config
-    for (const tool of configTools) {
-      const name = this.registrationName(tool.name);
-      if (!this.registeredTools.has(name)) {
-        const toolId = tool.id;
-        const disposable = vscode.lm.registerTool(name, {
-          invoke: async (options, token) => {
-            return this.toolHandler.handle(
-              toolId,
-              options as vscode.LanguageModelToolInvocationOptions<{ query: string }>,
-              token,
-            );
-          },
-        });
-        this.registeredTools.set(name, disposable);
-        this.logger.info(`Registered tool: ${name}`);
-      }
-    }
-  }
-
-  private registrationName(toolName: string): string {
-    return `repolens-${toolName}`;
+    this.registeredTools.set('__list__', disposable);
+    this.logger.info('Registered list tool');
   }
 
   dispose(): void {
@@ -84,6 +49,5 @@ export class ToolManager implements vscode.Disposable {
       disposable.dispose();
     }
     this.registeredTools.clear();
-    this.disposables.forEach((d) => d.dispose());
   }
 }
