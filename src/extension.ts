@@ -87,7 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
   toolManager.registerAll();
 
   // Sidebar
-  const dataSourceTreeProvider = new DataSourceTreeProvider(configManager);
+  const dataSourceTreeProvider = new DataSourceTreeProvider(configManager, chunkStore);
   const toolTreeProvider = new ToolTreeProvider(configManager);
   const embeddingTreeProvider = new EmbeddingTreeProvider(providerRegistry, context.secrets);
   vscode.window.registerTreeDataProvider('repoLens.dataSources', dataSourceTreeProvider);

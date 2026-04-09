@@ -122,4 +122,42 @@ describe('ChunkStore', () => {
     chunkStore.deleteByDataSource('ds1');
     expect(chunkStore.getByDataSource('ds1')).toHaveLength(0);
   });
+
+  it('getFileStats returns per-file chunk and token counts', () => {
+    chunkStore.insert(makeChunk({ id: 'c1', filePath: 'a.ts', tokenCount: 10 }));
+    chunkStore.insert(makeChunk({ id: 'c2', filePath: 'a.ts', tokenCount: 20 }));
+    chunkStore.insert(makeChunk({ id: 'c3', filePath: 'b.ts', tokenCount: 15 }));
+
+    const stats = chunkStore.getFileStats('ds1');
+    expect(stats).toHaveLength(2);
+    expect(stats[0]).toEqual({ filePath: 'a.ts', chunkCount: 2, tokenCount: 30 });
+    expect(stats[1]).toEqual({ filePath: 'b.ts', chunkCount: 1, tokenCount: 15 });
+  });
+
+  it('getFileStats returns empty array for unknown data source', () => {
+    expect(chunkStore.getFileStats('nonexistent')).toEqual([]);
+  });
+
+  it('getFileStats returns results sorted by file path', () => {
+    chunkStore.insert(makeChunk({ id: 'c1', filePath: 'src/z.ts', tokenCount: 5 }));
+    chunkStore.insert(makeChunk({ id: 'c2', filePath: 'src/a.ts', tokenCount: 5 }));
+    chunkStore.insert(makeChunk({ id: 'c3', filePath: 'lib/b.ts', tokenCount: 5 }));
+
+    const stats = chunkStore.getFileStats('ds1');
+    expect(stats.map((s) => s.filePath)).toEqual(['lib/b.ts', 'src/a.ts', 'src/z.ts']);
+  });
+
+  it('getDataSourceStats returns aggregate counts', () => {
+    chunkStore.insert(makeChunk({ id: 'c1', filePath: 'a.ts', tokenCount: 10 }));
+    chunkStore.insert(makeChunk({ id: 'c2', filePath: 'a.ts', tokenCount: 20 }));
+    chunkStore.insert(makeChunk({ id: 'c3', filePath: 'b.ts', tokenCount: 15 }));
+
+    const stats = chunkStore.getDataSourceStats('ds1');
+    expect(stats).toEqual({ fileCount: 2, chunkCount: 3, totalTokens: 45 });
+  });
+
+  it('getDataSourceStats returns zeros for unknown data source', () => {
+    const stats = chunkStore.getDataSourceStats('nonexistent');
+    expect(stats).toEqual({ fileCount: 0, chunkCount: 0, totalTokens: 0 });
+  });
 });
