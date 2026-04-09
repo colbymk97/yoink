@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('vscode', () => ({
   Uri: { file: (p: string) => ({ fsPath: p }) },
+  window: {
+    showErrorMessage: vi.fn(),
+  },
+  commands: {
+    executeCommand: vi.fn(),
+  },
 }));
 
 import { DataSourceManager, AddDataSourceOptions } from '../../../src/sources/dataSourceManager';
@@ -24,6 +30,7 @@ describe('DataSourceManager', () => {
   let dataSources: DataSourceConfig[];
   let configManager: any;
   let pipeline: any;
+  let embeddingRegistry: any;
   let manager: DataSourceManager;
 
   beforeEach(() => {
@@ -42,7 +49,11 @@ describe('DataSourceManager', () => {
       enqueue: vi.fn(),
       removeDataSource: vi.fn(),
     };
-    manager = new DataSourceManager(configManager, pipeline);
+    embeddingRegistry = {
+      getProvider: vi.fn().mockResolvedValue({}),
+      hasApiKey: vi.fn().mockResolvedValue(true),
+    };
+    manager = new DataSourceManager(configManager, pipeline, embeddingRegistry);
   });
 
   it('add creates a data source and enqueues it', async () => {

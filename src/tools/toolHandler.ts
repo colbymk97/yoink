@@ -29,20 +29,55 @@ export class ToolHandler {
   }
 
   async handleGlobalSearch(
-    options: vscode.LanguageModelToolInvocationOptions<{ query: string }>,
+    options: vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string }>,
     _token: vscode.CancellationToken,
   ): Promise<vscode.LanguageModelToolResult> {
-    const allDataSourceIds = this.configManager
+    const readySources = this.configManager
       .getDataSources()
-      .filter((ds) => ds.status === 'ready')
-      .map((ds) => ds.id);
+      .filter((ds) => ds.status === 'ready');
 
-    return this.executeSearch(options.input.query, allDataSourceIds);
+    if (readySources.length === 0) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          'No repositories are indexed yet. Add a repository via the RepoLens sidebar and wait for indexing to complete.',
+        ),
+      ]);
+    }
+
+    let targetIds: string[];
+    const repoFilter = options.input.repository?.toLowerCase();
+
+    if (repoFilter) {
+      const matched = readySources.filter(
+        (ds) =>
+          `${ds.owner}/${ds.repo}`.toLowerCase() === repoFilter ||
+          ds.repo.toLowerCase() === repoFilter,
+      );
+      if (matched.length === 0) {
+        const available = readySources.map((ds) => `${ds.owner}/${ds.repo}`).join(', ');
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            `Repository "${options.input.repository}" is not indexed. Indexed repositories: ${available}`,
+          ),
+        ]);
+      }
+      targetIds = matched.map((ds) => ds.id);
+    } else {
+      targetIds = readySources.map((ds) => ds.id);
+    }
+
+    const searchedRepos = readySources
+      .filter((ds) => targetIds.includes(ds.id))
+      .map((ds) => `${ds.owner}/${ds.repo}`)
+      .join(', ');
+
+    return this.executeSearch(options.input.query, targetIds, searchedRepos);
   }
 
   private async executeSearch(
     query: string,
     dataSourceIds: string[],
+    searchedRepos?: string,
   ): Promise<vscode.LanguageModelToolResult> {
     try {
       const topK = vscode.workspace
@@ -53,8 +88,12 @@ export class ToolHandler {
       const results = await this.retriever.search(query, dataSourceIds, provider, topK);
       const formatted = this.contextBuilder.format(results);
 
+      const header = searchedRepos
+        ? `*Searched repositories: ${searchedRepos}*\n\n`
+        : '';
+
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(formatted),
+        new vscode.LanguageModelTextPart(header + formatted),
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

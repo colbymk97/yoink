@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { ConfigManager } from '../config/configManager';
 import { DataSourceConfig } from '../config/configSchema';
 import { IngestionPipeline } from '../ingestion/pipeline';
+import { EmbeddingProviderRegistry } from '../embedding/registry';
 
 export interface AddDataSourceOptions {
   repoUrl: string;
@@ -20,6 +21,7 @@ export class DataSourceManager implements vscode.Disposable {
   constructor(
     private readonly configManager: ConfigManager,
     private readonly pipeline: IngestionPipeline,
+    private readonly embeddingRegistry: EmbeddingProviderRegistry,
   ) {}
 
   /**
@@ -41,6 +43,8 @@ export class DataSourceManager implements vscode.Disposable {
       );
     }
 
+    await this.assertApiKeyConfigured();
+
     const ds: DataSourceConfig = {
       id: crypto.randomUUID(),
       ...options,
@@ -54,8 +58,25 @@ export class DataSourceManager implements vscode.Disposable {
   }
 
   async sync(id: string): Promise<void> {
+    await this.assertApiKeyConfigured();
     this.configManager.updateDataSource(id, { status: 'queued' });
     this.pipeline.enqueue(id);
+  }
+
+  private async assertApiKeyConfigured(): Promise<void> {
+    try {
+      await this.embeddingRegistry.getProvider();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const action = await vscode.window.showErrorMessage(
+        `RepoLens: ${message}`,
+        'Set API Key',
+      );
+      if (action === 'Set API Key') {
+        await vscode.commands.executeCommand('repoLens.setApiKey');
+      }
+      throw err;
+    }
   }
 
   async syncAll(): Promise<void> {

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { DataSourceConfig, ToolConfig } from '../../config/configSchema';
 import { ConfigManager } from '../../config/configManager';
 
-export type SidebarTreeItem = DataSourceTreeItem | ToolTreeItem;
+export type SidebarTreeItem = DataSourceTreeItem | ToolTreeItem | EmbeddingTreeItem;
 
 const STATUS_ICONS: Record<string, string> = {
   queued: '$(clock)',
@@ -44,6 +44,26 @@ export class DataSourceTreeItem extends vscode.TreeItem {
       lines.push(`Error: ${this.dataSource.errorMessage}`);
     }
     return lines.join('\n');
+  }
+}
+
+export class EmbeddingTreeItem extends vscode.TreeItem {
+  constructor(model: string, hasKey: boolean) {
+    super(model, vscode.TreeItemCollapsibleState.None);
+    if (hasKey) {
+      this.description = '$(check) API key configured';
+      this.iconPath = new vscode.ThemeIcon('symbol-misc');
+      this.tooltip = `Embedding model: ${model}\nAPI key: configured`;
+    } else {
+      this.description = '$(warning) No API key — click to set';
+      this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
+      this.tooltip = `Embedding model: ${model}\nAPI key: not configured\nClick to set your OpenAI API key`;
+      this.command = {
+        command: 'repoLens.setApiKey',
+        title: 'Set API Key',
+      };
+    }
+    this.contextValue = 'embedding';
   }
 }
 

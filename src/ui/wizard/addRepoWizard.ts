@@ -4,6 +4,7 @@ import { RepoBrowser } from '../../sources/github/repoBrowser';
 import { DataSourceManager, AddDataSourceOptions } from '../../sources/dataSourceManager';
 import { DEFAULT_EXCLUDE_PATTERNS, ToolConfig } from '../../config/configSchema';
 import { ConfigManager } from '../../config/configManager';
+import { EmbeddingProviderRegistry } from '../../embedding/registry';
 import * as crypto from 'crypto';
 
 export class AddRepoWizard {
@@ -12,9 +13,24 @@ export class AddRepoWizard {
     private readonly browser: RepoBrowser,
     private readonly dataSourceManager: DataSourceManager,
     private readonly configManager: ConfigManager,
+    private readonly embeddingRegistry: EmbeddingProviderRegistry,
   ) {}
 
   async run(): Promise<void> {
+    // Step 0: Ensure API key is configured
+    if (!(await this.embeddingRegistry.hasApiKey())) {
+      const apiKey = await vscode.window.showInputBox({
+        title: 'RepoLens: OpenAI API Key Required',
+        prompt: 'Enter your OpenAI API key to enable embeddings',
+        placeHolder: 'sk-...',
+        password: true,
+        ignoreFocusOut: true,
+        validateInput: (v) => v.trim() ? null : 'API key cannot be empty',
+      });
+      if (!apiKey) return;
+      await this.embeddingRegistry.setApiKey(apiKey.trim());
+    }
+
     // Step 1: Get repo URL or search
     const repoInput = await this.getRepoInput();
     if (!repoInput) return;

@@ -35,6 +35,10 @@ export class EmbeddingProviderRegistry {
     });
   }
 
+  async hasApiKey(): Promise<boolean> {
+    return (await this.resolveApiKey()) !== undefined;
+  }
+
   private async resolveApiKey(): Promise<string | undefined> {
     // 1. SecretStorage (primary)
     const stored = await this.secretStorage.get('repoLens.openai.apiKey');

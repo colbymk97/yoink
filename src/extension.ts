@@ -16,7 +16,7 @@ import { Retriever } from './retrieval/retriever';
 import { ContextBuilder } from './retrieval/contextBuilder';
 import { ToolHandler } from './tools/toolHandler';
 import { ToolManager } from './tools/toolManager';
-import { DataSourceTreeProvider, ToolTreeProvider } from './ui/sidebar/sidebarProvider';
+import { DataSourceTreeProvider, ToolTreeProvider, EmbeddingTreeProvider } from './ui/sidebar/sidebarProvider';
 import { AddRepoWizard } from './ui/wizard/addRepoWizard';
 import { registerCommands } from './ui/commands';
 import { DeltaSync } from './sources/sync/deltaSync';
@@ -62,8 +62,15 @@ export function activate(context: vscode.ExtensionContext): void {
     deltaSync,
   );
 
+  // Surface pipeline errors as VS Code notifications
+  pipeline.onIndexingError((dataSourceId, message) => {
+    const ds = configManager.getDataSource(dataSourceId);
+    const label = ds ? `${ds.owner}/${ds.repo}` : dataSourceId;
+    vscode.window.showErrorMessage(`RepoLens: Indexing failed for ${label}: ${message}`);
+  });
+
   // Data source management
-  const dataSourceManager = new DataSourceManager(configManager, pipeline);
+  const dataSourceManager = new DataSourceManager(configManager, pipeline, providerRegistry);
 
   // Retrieval
   const retriever = new Retriever(chunkStore, embeddingStore);
@@ -82,8 +89,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Sidebar
   const dataSourceTreeProvider = new DataSourceTreeProvider(configManager);
   const toolTreeProvider = new ToolTreeProvider(configManager);
+  const embeddingTreeProvider = new EmbeddingTreeProvider(providerRegistry, context.secrets);
   vscode.window.registerTreeDataProvider('repoLens.dataSources', dataSourceTreeProvider);
   vscode.window.registerTreeDataProvider('repoLens.tools', toolTreeProvider);
+  vscode.window.registerTreeDataProvider('repoLens.embedding', embeddingTreeProvider);
 
   // Commands
   registerCommands(
@@ -91,7 +100,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configManager,
     dataSourceManager,
     providerRegistry,
-    () => new AddRepoWizard(resolver, browser, dataSourceManager, configManager),
+    () => new AddRepoWizard(resolver, browser, dataSourceManager, configManager, providerRegistry),
   );
 
   // Sync scheduler
@@ -105,6 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
     dataSourceManager,
     toolManager,
     scheduler,
+    embeddingTreeProvider,
     logger,
   );
 

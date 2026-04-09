@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DEFAULT_DIMENSIONS = 1536;
 
 export interface OpenDatabaseOptions {
@@ -41,12 +41,31 @@ function migrate(db: Database.Database, dimensions: number): void {
   const currentVersion = getSchemaVersion(db);
 
   if (currentVersion < 1) {
-    // Regular tables in one exec block
     db.exec(`
       CREATE TABLE IF NOT EXISTS meta (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `);
+
+    db.exec(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(
+        chunk_id TEXT PRIMARY KEY,
+        embedding FLOAT[${dimensions}]
+      )`,
+    );
+
+    db.prepare(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('embedding_dimensions', ?)",
+    ).run(dimensions.toString());
+  }
+
+  if (currentVersion < 2) {
+    // Recreate chunks and sync_history without FK constraints on data_source_id.
+    // data_sources table is kept for DataSourceStore but no longer referenced by FK.
+    db.exec(`
+      DROP TABLE IF EXISTS sync_history;
+      DROP TABLE IF EXISTS chunks;
 
       CREATE TABLE IF NOT EXISTS data_sources (
         id                TEXT PRIMARY KEY,
@@ -61,7 +80,7 @@ function migrate(db: Database.Database, dimensions: number): void {
 
       CREATE TABLE IF NOT EXISTS chunks (
         id              TEXT PRIMARY KEY,
-        data_source_id  TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+        data_source_id  TEXT NOT NULL,
         file_path       TEXT NOT NULL,
         start_line      INTEGER NOT NULL,
         end_line        INTEGER NOT NULL,
@@ -75,7 +94,7 @@ function migrate(db: Database.Database, dimensions: number): void {
 
       CREATE TABLE IF NOT EXISTS sync_history (
         id              TEXT PRIMARY KEY,
-        data_source_id  TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+        data_source_id  TEXT NOT NULL,
         started_at      TEXT NOT NULL,
         completed_at    TEXT,
         status          TEXT NOT NULL,
@@ -88,20 +107,7 @@ function migrate(db: Database.Database, dimensions: number): void {
       CREATE INDEX IF NOT EXISTS idx_sync_history_ds ON sync_history(data_source_id);
     `);
 
-    // vec0 virtual table — must be a separate statement
-    db.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(
-        chunk_id TEXT PRIMARY KEY,
-        embedding FLOAT[${dimensions}]
-      )`,
-    );
-
     setSchemaVersion(db, SCHEMA_VERSION);
-
-    // Record the dimensions so we can detect model changes later
-    db.prepare(
-      "INSERT OR REPLACE INTO meta (key, value) VALUES ('embedding_dimensions', ?)",
-    ).run(dimensions.toString());
   }
 }
 

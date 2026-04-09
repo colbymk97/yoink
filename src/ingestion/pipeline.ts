@@ -36,6 +36,7 @@ export class IngestionPipeline {
   private readonly queue: string[] = [];
   private readonly running = new Set<string>();
   private disposed = false;
+  private readonly _onIndexingError: ((dataSourceId: string, message: string) => void)[] = [];
 
   constructor(
     private readonly config: PipelineConfigSource,
@@ -47,6 +48,10 @@ export class IngestionPipeline {
     private readonly logger: PipelineLogger,
     private readonly deltaSync?: DeltaSync,
   ) {}
+
+  onIndexingError(handler: (dataSourceId: string, message: string) => void): void {
+    this._onIndexingError.push(handler);
+  }
 
   get queueSize(): number {
     return this.queue.length;
@@ -112,8 +117,11 @@ export class IngestionPipeline {
         status: 'error',
         errorMessage: message,
       });
-      this.syncStore.failSync(syncId, message);
+      try { this.syncStore.failSync(syncId, message); } catch { /* best-effort */ }
       this.logger.error(`Indexing failed for ${ds.owner}/${ds.repo}: ${message}`);
+      for (const handler of this._onIndexingError) {
+        handler(dataSourceId, message);
+      }
     }
   }
 
