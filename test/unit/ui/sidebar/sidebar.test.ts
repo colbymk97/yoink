@@ -31,7 +31,12 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { DataSourceTreeItem, ToolTreeItem } from '../../../../src/ui/sidebar/sidebarTreeItems';
+import {
+  DataSourceTreeItem,
+  DataSourceInfoItem,
+  DataSourceFileItem,
+  ToolTreeItem,
+} from '../../../../src/ui/sidebar/sidebarTreeItems';
 import { DataSourceTreeProvider, ToolTreeProvider } from '../../../../src/ui/sidebar/sidebarProvider';
 import { DataSourceConfig, ToolConfig } from '../../../../src/config/configSchema';
 
@@ -80,6 +85,89 @@ describe('DataSourceTreeItem', () => {
     const item = new DataSourceTreeItem(makeDs());
     expect(item.contextValue).toBe('dataSource');
   });
+
+  it('is collapsible when status is ready', () => {
+    const item = new DataSourceTreeItem(makeDs({ status: 'ready' }));
+    expect(item.collapsibleState).toBe(1); // Collapsed
+  });
+
+  it('is not collapsible when status is indexing', () => {
+    const item = new DataSourceTreeItem(makeDs({ status: 'indexing' }));
+    expect(item.collapsibleState).toBe(0); // None
+  });
+
+  it('is not collapsible when status is error', () => {
+    const item = new DataSourceTreeItem(makeDs({ status: 'error' }));
+    expect(item.collapsibleState).toBe(0); // None
+  });
+
+  it('is not collapsible when status is queued', () => {
+    const item = new DataSourceTreeItem(makeDs({ status: 'queued' }));
+    expect(item.collapsibleState).toBe(0); // None
+  });
+});
+
+describe('DataSourceInfoItem', () => {
+  it('displays stats in label', () => {
+    const item = new DataSourceInfoItem(
+      { fileCount: 12, chunkCount: 87, totalTokens: 4230 },
+      makeDs(),
+    );
+    expect(item.label).toContain('12');
+    expect(item.label).toContain('87');
+    expect(item.label).toContain('4,230');
+  });
+
+  it('sets contextValue to dataSourceInfo', () => {
+    const item = new DataSourceInfoItem(
+      { fileCount: 1, chunkCount: 1, totalTokens: 10 },
+      makeDs(),
+    );
+    expect(item.contextValue).toBe('dataSourceInfo');
+  });
+
+  it('includes commit SHA in tooltip when available', () => {
+    const item = new DataSourceInfoItem(
+      { fileCount: 1, chunkCount: 1, totalTokens: 10 },
+      makeDs({ lastSyncCommitSha: 'abc1234567890' }),
+    );
+    expect(item.tooltip).toContain('abc1234');
+  });
+
+  it('is not collapsible', () => {
+    const item = new DataSourceInfoItem(
+      { fileCount: 1, chunkCount: 1, totalTokens: 10 },
+      makeDs(),
+    );
+    expect(item.collapsibleState).toBe(0); // None
+  });
+});
+
+describe('DataSourceFileItem', () => {
+  it('displays file path as label', () => {
+    const item = new DataSourceFileItem({ filePath: 'src/index.ts', chunkCount: 3, tokenCount: 150 });
+    expect(item.label).toBe('src/index.ts');
+  });
+
+  it('shows chunk count in description', () => {
+    const item = new DataSourceFileItem({ filePath: 'a.ts', chunkCount: 5, tokenCount: 100 });
+    expect(item.description).toBe('5 chunks');
+  });
+
+  it('singularizes chunk count of 1', () => {
+    const item = new DataSourceFileItem({ filePath: 'a.ts', chunkCount: 1, tokenCount: 50 });
+    expect(item.description).toBe('1 chunk');
+  });
+
+  it('sets contextValue to dataSourceFile', () => {
+    const item = new DataSourceFileItem({ filePath: 'a.ts', chunkCount: 1, tokenCount: 50 });
+    expect(item.contextValue).toBe('dataSourceFile');
+  });
+
+  it('is not collapsible', () => {
+    const item = new DataSourceFileItem({ filePath: 'a.ts', chunkCount: 1, tokenCount: 50 });
+    expect(item.collapsibleState).toBe(0); // None
+  });
 });
 
 describe('ToolTreeItem', () => {
@@ -120,19 +208,65 @@ describe('ToolTreeItem', () => {
 });
 
 describe('DataSourceTreeProvider', () => {
-  it('returns data source tree items from config', () => {
+  function makeChunkStore(stats = { fileCount: 0, chunkCount: 0, totalTokens: 0 }, fileStats: any[] = []) {
+    return {
+      getDataSourceStats: vi.fn().mockReturnValue(stats),
+      getFileStats: vi.fn().mockReturnValue(fileStats),
+    } as any;
+  }
+
+  it('returns data source tree items from config at root', () => {
     const changeCallbacks: Array<() => void> = [];
     const configManager = {
       getDataSources: () => [makeDs(), makeDs({ id: 'ds-2', owner: 'other', repo: 'lib' })],
       onDidChange: (cb: () => void) => { changeCallbacks.push(cb); return { dispose: vi.fn() }; },
     } as any;
 
-    const provider = new DataSourceTreeProvider(configManager);
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
     const children = provider.getChildren();
 
     expect(children).toHaveLength(2);
     expect(children[0].label).toBe('acme/widgets');
     expect(children[1].label).toBe('other/lib');
+  });
+
+  it('returns info and file items when expanding a ready data source', () => {
+    const configManager = {
+      getDataSources: () => [makeDs()],
+      onDidChange: () => ({ dispose: vi.fn() }),
+    } as any;
+
+    const chunkStore = makeChunkStore(
+      { fileCount: 2, chunkCount: 5, totalTokens: 200 },
+      [
+        { filePath: 'a.ts', chunkCount: 3, tokenCount: 120 },
+        { filePath: 'b.ts', chunkCount: 2, tokenCount: 80 },
+      ],
+    );
+
+    const provider = new DataSourceTreeProvider(configManager, chunkStore);
+    const dsItem = new DataSourceTreeItem(makeDs());
+    const children = provider.getChildren(dsItem);
+
+    expect(children).toHaveLength(3);
+    expect(children[0]).toBeInstanceOf(DataSourceInfoItem);
+    expect(children[1]).toBeInstanceOf(DataSourceFileItem);
+    expect(children[2]).toBeInstanceOf(DataSourceFileItem);
+    expect(children[1].label).toBe('a.ts');
+    expect(children[2].label).toBe('b.ts');
+  });
+
+  it('returns empty array for non-ready data source children', () => {
+    const configManager = {
+      getDataSources: () => [],
+      onDidChange: () => ({ dispose: vi.fn() }),
+    } as any;
+
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
+    const dsItem = new DataSourceTreeItem(makeDs({ status: 'indexing' }));
+    const children = provider.getChildren(dsItem);
+
+    expect(children).toHaveLength(0);
   });
 
   it('fires onDidChangeTreeData on config change', () => {
@@ -142,7 +276,7 @@ describe('DataSourceTreeProvider', () => {
       onDidChange: (cb: () => void) => { changeCallbacks.push(cb); return { dispose: vi.fn() }; },
     } as any;
 
-    const provider = new DataSourceTreeProvider(configManager);
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
     const listener = vi.fn();
     provider.onDidChangeTreeData(listener);
 

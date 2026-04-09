@@ -3,6 +3,7 @@ import { AddRepoWizard } from './wizard/addRepoWizard';
 import { DataSourceManager } from '../sources/dataSourceManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
+import { WorkspaceConfigManager } from '../config/workspaceConfig';
 import { DataSourceTreeItem, ToolTreeItem } from './sidebar/sidebarTreeItems';
 
 export function registerCommands(
@@ -11,6 +12,7 @@ export function registerCommands(
   dataSourceManager: DataSourceManager,
   providerRegistry: EmbeddingProviderRegistry,
   wizardFactory: () => AddRepoWizard,
+  workspaceConfigManager: WorkspaceConfigManager,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('repoLens.addRepository', async () => {
@@ -134,6 +136,14 @@ export function registerCommands(
         configManager.updateTool(picked.id, { description: newDescription });
         vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
       }
+    }),
+
+    vscode.commands.registerCommand('repoLens.exportConfig', async () => {
+      await workspaceConfigManager.exportConfig();
+    }),
+
+    vscode.commands.registerCommand('repoLens.importConfig', async () => {
+      await workspaceConfigManager.importFromWorkspace();
     }),
   );
 }

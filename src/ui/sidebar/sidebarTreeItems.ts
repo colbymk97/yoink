@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
 import { DataSourceConfig, ToolConfig } from '../../config/configSchema';
 import { ConfigManager } from '../../config/configManager';
+import { DataSourceStats, FileStats } from '../../storage/chunkStore';
 
-export type SidebarTreeItem = DataSourceTreeItem | ToolTreeItem | EmbeddingTreeItem;
+export type SidebarTreeItem =
+  | DataSourceTreeItem
+  | DataSourceInfoItem
+  | DataSourceFileItem
+  | ToolTreeItem
+  | EmbeddingTreeItem;
 
 const STATUS_ICONS: Record<string, string> = {
   queued: '$(clock)',
@@ -15,7 +21,9 @@ export class DataSourceTreeItem extends vscode.TreeItem {
   constructor(public readonly dataSource: DataSourceConfig) {
     super(
       `${dataSource.owner}/${dataSource.repo}`,
-      vscode.TreeItemCollapsibleState.None,
+      dataSource.status === 'ready'
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.None,
     );
 
     const icon = STATUS_ICONS[dataSource.status] || '$(question)';
@@ -44,6 +52,45 @@ export class DataSourceTreeItem extends vscode.TreeItem {
       lines.push(`Error: ${this.dataSource.errorMessage}`);
     }
     return lines.join('\n');
+  }
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+export class DataSourceInfoItem extends vscode.TreeItem {
+  constructor(stats: DataSourceStats, dataSource: DataSourceConfig) {
+    const label = `${formatNumber(stats.fileCount)} files · ${formatNumber(stats.chunkCount)} chunks · ${formatNumber(stats.totalTokens)} tokens`;
+    super(label, vscode.TreeItemCollapsibleState.None);
+
+    this.iconPath = new vscode.ThemeIcon('info');
+    this.contextValue = 'dataSourceInfo';
+
+    const lines = [
+      `${dataSource.owner}/${dataSource.repo}@${dataSource.branch}`,
+      `Files: ${formatNumber(stats.fileCount)}`,
+      `Chunks: ${formatNumber(stats.chunkCount)}`,
+      `Tokens: ${formatNumber(stats.totalTokens)}`,
+    ];
+    if (dataSource.lastSyncedAt) {
+      lines.push(`Last synced: ${dataSource.lastSyncedAt}`);
+    }
+    if (dataSource.lastSyncCommitSha) {
+      lines.push(`Commit: ${dataSource.lastSyncCommitSha.slice(0, 7)}`);
+    }
+    this.tooltip = lines.join('\n');
+  }
+}
+
+export class DataSourceFileItem extends vscode.TreeItem {
+  constructor(fileStats: FileStats) {
+    super(fileStats.filePath, vscode.TreeItemCollapsibleState.None);
+
+    this.description = `${fileStats.chunkCount} chunk${fileStats.chunkCount !== 1 ? 's' : ''}`;
+    this.iconPath = new vscode.ThemeIcon('file');
+    this.contextValue = 'dataSourceFile';
+    this.tooltip = `${fileStats.filePath}\n${fileStats.chunkCount} chunks · ${formatNumber(fileStats.tokenCount)} tokens`;
   }
 }
 

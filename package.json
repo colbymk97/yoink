@@ -67,6 +67,14 @@
         "command": "repoLens.editToolFromTree",
         "title": "Edit",
         "icon": "$(edit)"
+      },
+      {
+        "command": "repoLens.exportConfig",
+        "title": "RepoLens: Export Config to Workspace"
+      },
+      {
+        "command": "repoLens.importConfig",
+        "title": "RepoLens: Import Config from Workspace"
       }
     ],
     "menus": {

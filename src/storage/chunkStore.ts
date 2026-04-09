@@ -10,6 +10,18 @@ export interface ChunkRecord {
   tokenCount: number;
 }
 
+export interface FileStats {
+  filePath: string;
+  chunkCount: number;
+  tokenCount: number;
+}
+
+export interface DataSourceStats {
+  fileCount: number;
+  chunkCount: number;
+  totalTokens: number;
+}
+
 export class ChunkStore {
   private readonly insertStmt: Database.Statement;
   private readonly deleteByDataSourceStmt: Database.Statement;
@@ -17,6 +29,8 @@ export class ChunkStore {
   private readonly getByIdStmt: Database.Statement;
   private readonly getByDataSourceStmt: Database.Statement;
   private readonly countByDataSourceStmt: Database.Statement;
+  private readonly fileStatsStmt: Database.Statement;
+  private readonly dataSourceStatsStmt: Database.Statement;
 
   constructor(private readonly db: Database.Database) {
     this.insertStmt = db.prepare(`
@@ -32,6 +46,17 @@ export class ChunkStore {
     this.countByDataSourceStmt = db.prepare(
       'SELECT COUNT(*) as count FROM chunks WHERE data_source_id = ?',
     );
+    this.fileStatsStmt = db.prepare(`
+      SELECT file_path, COUNT(*) as chunk_count, SUM(token_count) as token_count
+      FROM chunks WHERE data_source_id = ?
+      GROUP BY file_path ORDER BY file_path
+    `);
+    this.dataSourceStatsStmt = db.prepare(`
+      SELECT COUNT(DISTINCT file_path) as file_count,
+             COUNT(*) as chunk_count,
+             COALESCE(SUM(token_count), 0) as total_tokens
+      FROM chunks WHERE data_source_id = ?
+    `);
   }
 
   insert(chunk: ChunkRecord): void {
@@ -92,6 +117,32 @@ export class ChunkStore {
   countByDataSource(dataSourceId: string): number {
     const row = this.countByDataSourceStmt.get(dataSourceId) as { count: number };
     return row.count;
+  }
+
+  getFileStats(dataSourceId: string): FileStats[] {
+    const rows = this.fileStatsStmt.all(dataSourceId) as Array<{
+      file_path: string;
+      chunk_count: number;
+      token_count: number;
+    }>;
+    return rows.map((r) => ({
+      filePath: r.file_path,
+      chunkCount: r.chunk_count,
+      tokenCount: r.token_count,
+    }));
+  }
+
+  getDataSourceStats(dataSourceId: string): DataSourceStats {
+    const row = this.dataSourceStatsStmt.get(dataSourceId) as {
+      file_count: number;
+      chunk_count: number;
+      total_tokens: number;
+    };
+    return {
+      fileCount: row.file_count,
+      chunkCount: row.chunk_count,
+      totalTokens: row.total_tokens,
+    };
   }
 }
 

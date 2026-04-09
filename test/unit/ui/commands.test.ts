@@ -27,6 +27,7 @@ describe('registerCommands', () => {
   let providerRegistry: any;
   let wizardFactory: any;
   let context: any;
+  let workspaceConfigManager: any;
 
   const ds1: DataSourceConfig = {
     id: 'ds-1', repoUrl: '', owner: 'acme', repo: 'widgets', branch: 'main',
@@ -55,9 +56,13 @@ describe('registerCommands', () => {
       setApiKey: vi.fn(),
     };
     wizardFactory = vi.fn().mockReturnValue({ run: vi.fn() });
+    workspaceConfigManager = {
+      exportConfig: vi.fn(),
+      importFromWorkspace: vi.fn(),
+    };
     context = { subscriptions: { push: vi.fn() } };
 
-    registerCommands(context, configManager, dataSourceManager, providerRegistry, wizardFactory);
+    registerCommands(context, configManager, dataSourceManager, providerRegistry, wizardFactory, workspaceConfigManager);
   });
 
   it('registers all expected commands', () => {
@@ -160,5 +165,20 @@ describe('registerCommands', () => {
     expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
       'No tools configured.',
     );
+  });
+
+  it('registers export and import commands', () => {
+    expect(commands.has('repoLens.exportConfig')).toBe(true);
+    expect(commands.has('repoLens.importConfig')).toBe(true);
+  });
+
+  it('exportConfig delegates to workspaceConfigManager', async () => {
+    await commands.get('repoLens.exportConfig')!();
+    expect(workspaceConfigManager.exportConfig).toHaveBeenCalled();
+  });
+
+  it('importConfig delegates to workspaceConfigManager', async () => {
+    await commands.get('repoLens.importConfig')!();
+    expect(workspaceConfigManager.importFromWorkspace).toHaveBeenCalled();
   });
 });

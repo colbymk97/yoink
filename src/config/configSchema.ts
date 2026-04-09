@@ -49,6 +49,32 @@ export const DEFAULT_EXCLUDE_PATTERNS: string[] = [
   '**/*.eot',
 ];
 
+// --- Shareable config types (for .vscode/repolens.json) ---
+
+export interface ShareableDataSource {
+  repoUrl: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  includePatterns: string[];
+  excludePatterns: string[];
+  syncSchedule: 'manual' | 'onStartup' | 'daily';
+}
+
+export interface ShareableTool {
+  name: string;
+  description: string;
+  dataSources: string[]; // "owner/repo@branch" references
+}
+
+export interface ShareableConfig {
+  $schema?: string;
+  version: number;
+  dataSources: ShareableDataSource[];
+  tools: ShareableTool[];
+  defaultExcludePatterns?: string[];
+}
+
 export function createDefaultConfig(): RepoLensConfig {
   return {
     version: 1,

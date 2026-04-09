@@ -1,8 +1,16 @@
 import * as vscode from 'vscode';
 import { ConfigManager } from '../../config/configManager';
-import { SidebarTreeItem, DataSourceTreeItem, ToolTreeItem, EmbeddingTreeItem } from './sidebarTreeItems';
+import {
+  SidebarTreeItem,
+  DataSourceTreeItem,
+  DataSourceInfoItem,
+  DataSourceFileItem,
+  ToolTreeItem,
+  EmbeddingTreeItem,
+} from './sidebarTreeItems';
 import { EmbeddingProviderRegistry } from '../../embedding/registry';
 import { SETTING_KEYS } from '../../config/settingsSchema';
+import { ChunkStore } from '../../storage/chunkStore';
 
 export class DataSourceTreeProvider
   implements vscode.TreeDataProvider<SidebarTreeItem>
@@ -10,7 +18,10 @@ export class DataSourceTreeProvider
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<SidebarTreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private readonly configManager: ConfigManager) {
+  constructor(
+    private readonly configManager: ConfigManager,
+    private readonly chunkStore: ChunkStore,
+  ) {
     configManager.onDidChange(() => this.refresh());
   }
 
@@ -22,10 +33,25 @@ export class DataSourceTreeProvider
     return element;
   }
 
-  getChildren(): SidebarTreeItem[] {
-    return this.configManager.getDataSources().map(
-      (ds) => new DataSourceTreeItem(ds),
-    );
+  getChildren(element?: SidebarTreeItem): SidebarTreeItem[] {
+    if (!element) {
+      return this.configManager.getDataSources().map(
+        (ds) => new DataSourceTreeItem(ds),
+      );
+    }
+
+    if (element instanceof DataSourceTreeItem && element.dataSource.status === 'ready') {
+      const dsId = element.dataSource.id;
+      const stats = this.chunkStore.getDataSourceStats(dsId);
+      const fileStats = this.chunkStore.getFileStats(dsId);
+
+      return [
+        new DataSourceInfoItem(stats, element.dataSource),
+        ...fileStats.map((fs) => new DataSourceFileItem(fs)),
+      ];
+    }
+
+    return [];
   }
 }
 
