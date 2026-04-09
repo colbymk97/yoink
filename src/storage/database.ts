@@ -61,12 +61,22 @@ function migrate(db: Database.Database, dimensions: number): void {
   }
 
   if (currentVersion < 2) {
-    // Drop old tables that had broken FK constraints referencing data_sources.
-    // data_sources is managed via repolens.json, not SQLite, so FK references are wrong.
+    // Recreate chunks and sync_history without FK constraints on data_source_id.
+    // data_sources table is kept for DataSourceStore but no longer referenced by FK.
     db.exec(`
       DROP TABLE IF EXISTS sync_history;
       DROP TABLE IF EXISTS chunks;
-      DROP TABLE IF EXISTS data_sources;
+
+      CREATE TABLE IF NOT EXISTS data_sources (
+        id                TEXT PRIMARY KEY,
+        owner             TEXT NOT NULL,
+        repo              TEXT NOT NULL,
+        branch            TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'queued',
+        last_synced_at    TEXT,
+        last_sync_commit  TEXT,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
 
       CREATE TABLE IF NOT EXISTS chunks (
         id              TEXT PRIMARY KEY,

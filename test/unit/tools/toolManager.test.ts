@@ -66,13 +66,14 @@ describe('ToolManager', () => {
     manager.dispose();
   });
 
-  it('registerAll registers user-configured tools', () => {
+  it('registerAll only registers the global search tool', () => {
     configTools = [makeTool('t-1', 'my-tool'), makeTool('t-2', 'other-tool')];
     const manager = new ToolManager(configManager, toolHandler, logger);
     manager.registerAll();
 
-    expect(registeredTools.has('repolens-my-tool')).toBe(true);
-    expect(registeredTools.has('repolens-other-tool')).toBe(true);
+    expect(registeredTools.has('repolens-search')).toBe(true);
+    expect(registeredTools.has('repolens-my-tool')).toBe(false);
+    expect(registeredTools.has('repolens-other-tool')).toBe(false);
     manager.dispose();
   });
 
@@ -87,44 +88,26 @@ describe('ToolManager', () => {
     expect(globalDisposals.length).toBe(1);
   });
 
-  it('syncRegistrations adds new tools from config', () => {
+  it('syncRegistrations is a no-op for config changes', () => {
     const manager = new ToolManager(configManager, toolHandler, logger);
     manager.registerAll();
 
-    expect(registeredTools.has('repolens-new-tool')).toBe(false);
-
-    // Simulate config change — add a new tool
+    // Simulate config change — should not register new tools
     configTools = [makeTool('t-new', 'new-tool')];
     changeListeners.forEach((cb) => cb());
 
-    expect(registeredTools.has('repolens-new-tool')).toBe(true);
-    manager.dispose();
-  });
-
-  it('syncRegistrations removes tools no longer in config', () => {
-    configTools = [makeTool('t-1', 'old-tool')];
-    const manager = new ToolManager(configManager, toolHandler, logger);
-    manager.registerAll();
-
-    expect(registeredTools.has('repolens-old-tool')).toBe(true);
-
-    // Remove the tool from config and trigger sync
-    configTools = [];
-    changeListeners.forEach((cb) => cb());
-
-    expect(disposedTools).toContain('repolens-old-tool');
+    expect(registeredTools.has('repolens-new-tool')).toBe(false);
+    expect(registeredTools.has('repolens-search')).toBe(true);
     manager.dispose();
   });
 
   it('dispose cleans up all registered tools', () => {
-    configTools = [makeTool('t-1', 'tool-a')];
     const manager = new ToolManager(configManager, toolHandler, logger);
     manager.registerAll();
 
     manager.dispose();
 
     expect(disposedTools).toContain('repolens-search');
-    expect(disposedTools).toContain('repolens-tool-a');
   });
 
   it('keeps global tool during syncRegistrations', () => {

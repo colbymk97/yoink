@@ -90,11 +90,12 @@ describe('SyncStore', () => {
     expect(record!.commitSha).toBeNull();
   });
 
-  it('cascades deletes when data source is removed', () => {
+  it('records persist independently of data_sources table', () => {
     syncStore.startSync('sync-1', 'ds1', 'abc');
     syncStore.completeSync('sync-1', 5, 20);
 
-    dsStore.delete('ds1');
-    expect(syncStore.getLatest('ds1')).toBeUndefined();
+    const record = syncStore.getLatest('ds1');
+    expect(record).toBeDefined();
+    expect(record!.status).toBe('completed');
   });
 });

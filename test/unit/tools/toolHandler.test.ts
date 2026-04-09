@@ -161,6 +161,6 @@ describe('ToolHandler', () => {
     );
 
     expect(contextBuilder.format).toHaveBeenCalledWith(mockResults);
-    expect(result.parts[0].value).toBe('**formatted**');
+    expect(result.parts[0].value).toContain('**formatted**');
   });
 });

@@ -115,11 +115,11 @@ describe('ChunkStore', () => {
     expect(chunkStore.countByDataSource('ds2')).toBe(0);
   });
 
-  it('cascades deletes when data source is removed', () => {
+  it('deleteByDataSource removes all chunks for that source', () => {
     chunkStore.insert(makeChunk({ id: 'c1', dataSourceId: 'ds1' }));
     chunkStore.insert(makeChunk({ id: 'c2', dataSourceId: 'ds1' }));
 
-    dsStore.delete('ds1');
+    chunkStore.deleteByDataSource('ds1');
     expect(chunkStore.getByDataSource('ds1')).toHaveLength(0);
   });
 });
