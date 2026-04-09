@@ -19,6 +19,7 @@ import { ToolManager } from './tools/toolManager';
 import { DataSourceTreeProvider, ToolTreeProvider, EmbeddingTreeProvider } from './ui/sidebar/sidebarProvider';
 import { AddRepoWizard } from './ui/wizard/addRepoWizard';
 import { registerCommands } from './ui/commands';
+import { WorkspaceConfigManager } from './config/workspaceConfig';
 import { DeltaSync } from './sources/sync/deltaSync';
 import { Logger } from './util/logger';
 
@@ -94,6 +95,13 @@ export function activate(context: vscode.ExtensionContext): void {
   vscode.window.registerTreeDataProvider('repoLens.tools', toolTreeProvider);
   vscode.window.registerTreeDataProvider('repoLens.embedding', embeddingTreeProvider);
 
+  // Workspace config (shareable)
+  const workspaceConfigManager = new WorkspaceConfigManager(
+    configManager,
+    dataSourceManager,
+    logger,
+  );
+
   // Commands
   registerCommands(
     context,
@@ -101,6 +109,7 @@ export function activate(context: vscode.ExtensionContext): void {
     dataSourceManager,
     providerRegistry,
     () => new AddRepoWizard(resolver, browser, dataSourceManager, configManager, providerRegistry),
+    workspaceConfigManager,
   );
 
   // Sync scheduler
@@ -117,6 +126,9 @@ export function activate(context: vscode.ExtensionContext): void {
     embeddingTreeProvider,
     logger,
   );
+
+  // Detect workspace config and prompt import
+  workspaceConfigManager.detectAndPrompt();
 
   logger.info('RepoLens activated');
 }

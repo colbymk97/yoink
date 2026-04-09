@@ -149,7 +149,7 @@ The notification appears every time the workspace is opened if the file exists a
 
 ## 3. Merge Algorithm
 
-The merge is additive: it adds to the user's config, never removes from it.
+The merge is **additive and idempotent**: it adds what's missing, skips what already exists, and never removes anything. Running the same import twice produces the same result.
 
 ### Data source merge
 
@@ -159,39 +159,25 @@ For each `ShareableDataSource` in the import:
 
 2. **If no match**: create a new `DataSourceConfig` with a fresh UUID, set `status: 'queued'`, `lastSyncedAt: null`, `lastSyncCommitSha: null`. Enqueue for indexing via `DataSourceManager.add()`.
 
-3. **If match found**: prompt the user with a quick pick:
-   - **"Replace"** — update the existing data source's `includePatterns`, `excludePatterns`, and `syncSchedule` to match the imported values. Do not re-index (the repo URL, owner, repo, and branch are already identical).
-   - **"Skip"** — keep the existing data source unchanged.
-   
-   ("Keep Both" is not offered for data sources since `DataSourceManager.isDuplicate()` prevents two data sources with the same owner/repo/branch, and allowing it would create confusion about which is canonical.)
+3. **If match found**: skip silently. The existing local config is authoritative.
 
 ### Tool merge
 
 For each `ShareableTool` in the import:
 
-1. **Resolve data source references**: for each `"owner/repo@branch"` string, find the local `DataSourceConfig` with matching owner/repo/branch. If any reference is unresolved (e.g., the data source import was skipped), warn the user and omit that reference.
+1. **Resolve data source references**: for each `"owner/repo@branch"` string, find the local `DataSourceConfig` with matching owner/repo/branch. Unresolvable references are dropped with a log warning.
 
 2. **Match check**: find existing local tool where `name` (exact match) matches.
 
 3. **If no match**: create a new `ToolConfig` with a fresh UUID and the resolved `dataSourceIds`.
 
-4. **If match found**: prompt with quick pick:
-   - **"Replace"** — overwrite the existing tool's `description` and `dataSourceIds`.
-   - **"Keep Both"** — create a new tool with the name suffixed, e.g., `"acme-search (imported)"`.
-   - **"Skip"** — keep the existing tool unchanged.
-
-### Conflict prompt UX
-
-Rather than prompting per-item (which is tedious for large configs), batch conflicts into a single quick pick when possible:
-
-- If there are **no conflicts** (all items are new), import silently and show a summary notification: *"Imported 3 data sources and 2 tools from workspace config."*
-- If there are **conflicts**, show one quick pick per conflicting item. This keeps the UX simple and predictable without building a complex multi-select merge UI.
+4. **If match found**: skip silently. The existing local config is authoritative.
 
 ### Merge order
 
-1. Import all data sources first (creating new ones, prompting for conflicts).
+1. Import all data sources first (creating new ones, skipping duplicates).
 2. Then import all tools (so data source references can be resolved).
-3. Finally, flush the config and show a summary notification.
+3. Flush the config and show a summary notification: *"Imported 2 data sources and 1 tool from workspace config. (3 already existed)"*
 
 ---
 
@@ -236,19 +222,10 @@ So the export doesn't need to actively "strip" secrets — it just needs to avoi
 
 **File encoding**: Always write and read as UTF-8, consistent with VS Code's default.
 
-### Questions for your input
+### Resolved questions
 
-1. **Dismiss persistence**: Should "Not Now" permanently dismiss the prompt for that workspace (stored in `context.workspaceState`), or should it re-prompt on every workspace open? The current design re-prompts every time, which is simpler but could annoy users who intentionally don't want the shared config.
-
-2. **defaultExcludePatterns handling**: The brief doesn't mention this field. Three options:
-   - (a) Always include it in export, merge as union on import
-   - (b) Only include it if the user has customized it (differs from built-in defaults)
-   - (c) Never include it — each user keeps their own defaults
-   
-   I'm leaning toward (b) to keep the file minimal.
-
-3. **Import command**: Should there also be a manual "RepoLens: Import Config from Workspace" command (in addition to the auto-detect prompt)? This would let users re-import after the config file is updated by a teammate, without reopening the workspace.
-
-4. **Tool name collision suffix**: When the user picks "Keep Both" for a tool conflict, I propose appending `" (imported)"` to the name. Is that reasonable, or would you prefer a different convention (e.g., a numeric suffix like `"acme-search-2"`)?
-
-5. **Partial import failures**: If importing 5 data sources and the 3rd one fails (e.g., invalid repo URL format), should we roll back all changes or keep the successfully imported ones? I'm leaning toward keeping partial results and reporting what failed.
+1. **Dismiss persistence**: Re-prompt each time. Simple, no persistence needed.
+2. **defaultExcludePatterns**: Only include in export if they differ from built-in defaults.
+3. **Manual import command**: Yes — "RepoLens: Import Config from Workspace" command added alongside auto-detect.
+4. **Tool name collisions**: N/A — idempotent import skips duplicates silently.
+5. **Partial import failures**: Keep partial results, report what failed in the summary notification.
