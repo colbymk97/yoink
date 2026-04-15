@@ -50,6 +50,10 @@
         "title": "Yoink: Set OpenAI API Key"
       },
       {
+        "command": "yoink.setAzureApiKey",
+        "title": "Yoink: Set Azure OpenAI API Key"
+      },
+      {
         "command": "yoink.editTool",
         "title": "Yoink: Edit Tool"
       },
@@ -127,7 +131,14 @@
         "yoink.embedding.provider": {
           "type": "string",
           "enum": [
-            "openai"
+            "openai",
+            "azure-openai",
+            "local"
+          ],
+          "enumDescriptions": [
+            "OpenAI embedding API (requires API key)",
+            "Azure OpenAI deployment (requires API key, endpoint, and deployment name)",
+            "Local OpenAI-compatible server such as Ollama (no API key required)"
           ],
           "default": "openai",
           "description": "Embedding provider to use for indexing."
@@ -141,6 +152,41 @@
           "type": "string",
           "default": "https://api.openai.com/v1",
           "description": "Base URL for OpenAI-compatible API (for proxies or compatible services)."
+        },
+        "yoink.embedding.azure.endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI resource endpoint URL, e.g. https://myresource.openai.azure.com"
+        },
+        "yoink.embedding.azure.deploymentName": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI deployment name for the embedding model."
+        },
+        "yoink.embedding.azure.apiVersion": {
+          "type": "string",
+          "default": "2024-02-01",
+          "description": "Azure OpenAI API version."
+        },
+        "yoink.embedding.azure.dimensions": {
+          "type": "number",
+          "default": 1536,
+          "description": "Embedding vector dimensions for the Azure OpenAI deployment. Must match the deployed model (e.g. 1536 for text-embedding-3-small, 3072 for text-embedding-3-large)."
+        },
+        "yoink.embedding.local.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "Base URL of the local OpenAI-compatible embedding server (e.g. Ollama)."
+        },
+        "yoink.embedding.local.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model name to request from the local embedding server, e.g. nomic-embed-text."
+        },
+        "yoink.embedding.local.dimensions": {
+          "type": "number",
+          "default": 768,
+          "description": "Embedding vector dimensions produced by the local model. Must match the actual model output (e.g. 768 for nomic-embed-text)."
         },
         "yoink.search.topK": {
           "type": "number",

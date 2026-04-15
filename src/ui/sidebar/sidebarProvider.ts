@@ -76,11 +76,21 @@ export class EmbeddingTreeProvider implements vscode.TreeDataProvider<SidebarTre
   }
 
   async getChildren(): Promise<SidebarTreeItem[]> {
-    const model = vscode.workspace
-      .getConfiguration()
-      .get<string>(SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small');
-    const hasKey = await this.embeddingRegistry.hasApiKey();
-    return [new EmbeddingTreeItem(model, hasKey)];
+    const config = vscode.workspace.getConfiguration();
+    const providerType = config.get<string>(SETTING_KEYS.EMBEDDING_PROVIDER, 'openai');
+
+    if (providerType === 'azure-openai') {
+      const deployment = config.get<string>(SETTING_KEYS.AZURE_DEPLOYMENT_NAME, '');
+      const hasKey = await this.embeddingRegistry.hasAzureApiKey();
+      return [new EmbeddingTreeItem(deployment || 'Azure OpenAI', hasKey, 'azure-openai')];
+    } else if (providerType === 'local') {
+      const model = config.get<string>(SETTING_KEYS.LOCAL_MODEL, 'local');
+      return [new EmbeddingTreeItem(model, true, 'local')];
+    } else {
+      const model = config.get<string>(SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small');
+      const hasKey = await this.embeddingRegistry.hasApiKey();
+      return [new EmbeddingTreeItem(model, hasKey, 'openai')];
+    }
   }
 
   dispose(): void {

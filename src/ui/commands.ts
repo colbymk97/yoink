@@ -78,6 +78,18 @@ export function registerCommands(
       }
     }),
 
+    vscode.commands.registerCommand('yoink.setAzureApiKey', async () => {
+      const key = await vscode.window.showInputBox({
+        prompt: 'Enter your Azure OpenAI API key',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (key) {
+        await providerRegistry.setAzureApiKey(key);
+        vscode.window.showInformationMessage('Azure OpenAI API key saved.');
+      }
+    }),
+
     // Tree-item context menu commands
     vscode.commands.registerCommand('yoink.syncDataSourceFromTree', async (item: DataSourceTreeItem) => {
       await dataSourceManager.sync(item.dataSource.id);

@@ -95,18 +95,25 @@ export class DataSourceFileItem extends vscode.TreeItem {
 }
 
 export class EmbeddingTreeItem extends vscode.TreeItem {
-  constructor(model: string, hasKey: boolean) {
+  constructor(model: string, hasKey: boolean, provider: 'openai' | 'azure-openai' | 'local') {
     super(model, vscode.TreeItemCollapsibleState.None);
-    if (hasKey) {
+
+    if (provider === 'local') {
+      this.description = '$(check) Local model';
+      this.iconPath = new vscode.ThemeIcon('symbol-misc');
+      this.tooltip = `Embedding model: ${model}\nLocal model (no API key required)`;
+    } else if (hasKey) {
       this.description = '$(check) API key configured';
       this.iconPath = new vscode.ThemeIcon('symbol-misc');
       this.tooltip = `Embedding model: ${model}\nAPI key: configured`;
     } else {
+      const setKeyCommand = provider === 'azure-openai' ? 'yoink.setAzureApiKey' : 'yoink.setApiKey';
+      const providerLabel = provider === 'azure-openai' ? 'Azure OpenAI' : 'OpenAI';
       this.description = '$(warning) No API key — click to set';
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
-      this.tooltip = `Embedding model: ${model}\nAPI key: not configured\nClick to set your OpenAI API key`;
+      this.tooltip = `Embedding model: ${model}\nAPI key: not configured\nClick to set your ${providerLabel} API key`;
       this.command = {
-        command: 'yoink.setApiKey',
+        command: setKeyCommand,
         title: 'Set API Key',
       };
     }
