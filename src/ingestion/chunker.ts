@@ -1,4 +1,5 @@
 import { chunkByAst, AstChunkerLogger } from './astChunker';
+import { detectLanguage } from './languageDetection';
 import type { ParserRegistry } from './parserRegistry';
 
 export interface Chunk {
@@ -19,7 +20,11 @@ export interface ChunkerOptions {
   maxTokens: number;
   overlapTokens: number;
   countTokens: (text: string) => number;
-  strategy: ChunkingStrategy;
+  /**
+   * Force a single strategy for every file, bypassing per-file routing.
+   * Primarily for tests; production callers should rely on routing.
+   */
+  strategy?: ChunkingStrategy;
   astDeps?: AstChunkerDepsOption;
 }
 
@@ -31,22 +36,53 @@ export class Chunker {
   private readonly maxTokens: number;
   private readonly overlapTokens: number;
   private readonly countTokens: (text: string) => number;
-  private readonly strategy: ChunkingStrategy;
+  private readonly forcedStrategy?: ChunkingStrategy;
   private readonly astDeps?: AstChunkerDepsOption;
 
   constructor(options?: Partial<ChunkerOptions>) {
     this.maxTokens = options?.maxTokens ?? DEFAULT_MAX_TOKENS;
     this.overlapTokens = options?.overlapTokens ?? DEFAULT_OVERLAP_TOKENS;
     this.countTokens = options?.countTokens ?? DEFAULT_COUNT_TOKENS;
-    this.strategy = options?.strategy ?? 'token-split';
+    this.forcedStrategy = options?.strategy;
     this.astDeps = options?.astDeps;
   }
 
   async chunkFile(content: string, filePath: string): Promise<Chunk[]> {
     if (!content) return [];
-    if (this.strategy === 'ast-based') return this.chunkByAst(content, filePath);
-    if (this.strategy === 'file-level') return this.chunkAsWhole(content);
-    if (this.strategy === 'markdown-heading') return this.chunkByHeadings(content);
+    if (this.forcedStrategy) {
+      return this.dispatch(this.forcedStrategy, content, filePath);
+    }
+    let strategy = Chunker.routeStrategy(filePath);
+    if (strategy === 'ast-based' && !this.astDeps) {
+      // Parser registry wasn't wired in — degrade gracefully rather than throw.
+      strategy = 'token-split';
+    }
+    return this.dispatch(strategy, content, filePath);
+  }
+
+  /**
+   * Per-file routing table. Picks a chunking strategy based on path/extension.
+   * Callers may override via the `strategy` option but should only do so for tests.
+   */
+  static routeStrategy(filePath: string): ChunkingStrategy {
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown-heading';
+    if (
+      lower.includes('.github/workflows/') &&
+      (lower.endsWith('.yml') || lower.endsWith('.yaml'))
+    ) {
+      return 'file-level';
+    }
+    const base = lower.split('/').pop() ?? '';
+    if (base === 'action.yml' || base === 'action.yaml') return 'file-level';
+    if (detectLanguage(filePath) !== null) return 'ast-based';
+    return 'token-split';
+  }
+
+  private dispatch(strategy: ChunkingStrategy, content: string, filePath: string): Promise<Chunk[]> | Chunk[] {
+    if (strategy === 'ast-based') return this.chunkByAst(content, filePath);
+    if (strategy === 'file-level') return this.chunkAsWhole(content);
+    if (strategy === 'markdown-heading') return this.chunkByHeadings(content);
     return this.chunkByTokens(content, filePath);
   }
 

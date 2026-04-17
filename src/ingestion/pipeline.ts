@@ -1,6 +1,5 @@
 import * as crypto from 'crypto';
 import { DataSourceConfig } from '../config/configSchema';
-import { REPO_TYPE_PRESETS } from '../config/repoTypePresets';
 import { EmbeddingProvider } from '../embedding/embeddingProvider';
 import { GitHubFetcher } from '../sources/github/githubFetcher';
 import { DeltaSync } from '../sources/sync/deltaSync';
@@ -168,9 +167,7 @@ export class IngestionPipeline {
       if (toFetch.length > 0) {
         const files = await this.fetcher.fetchFiles(ds.owner, ds.repo, toFetch);
         const provider = await this.embeddingSource.getProvider();
-        const preset = REPO_TYPE_PRESETS[ds.type ?? 'general'];
         const chunker = new Chunker({
-          strategy: preset.chunkingStrategy,
           countTokens: provider.countTokens
             ? (text: string) => provider.countTokens!(text)
             : undefined,
@@ -247,9 +244,7 @@ export class IngestionPipeline {
 
     // Get embedding provider and build chunker
     const provider = await this.embeddingSource.getProvider();
-    const preset = REPO_TYPE_PRESETS[ds.type ?? 'general'];
     const chunker = new Chunker({
-      strategy: preset.chunkingStrategy,
       countTokens: provider.countTokens
         ? (text: string) => provider.countTokens!(text)
         : undefined,

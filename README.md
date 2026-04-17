@@ -7,10 +7,10 @@ Yoink indexes GitHub repositories into a local SQLite vector database and expose
 ## Features
 
 - Index any public or private GitHub repository as a searchable data source
-- Multiple chunking strategies — fixed-size token windows for general content,
-  markdown-heading splits for docs, file-level for action.yml / workflows, and
-  AST-based splitting (Tree-sitter) that produces one chunk per function,
-  method, or class for source code
+- Per-file chunking — markdown is split on headings, source code is split on
+  functions/methods/classes via Tree-sitter (TS/TSX, JS/JSX, Python, Go, Java,
+  C#, Rust, Ruby), `action.yml` and workflow files are kept whole, and
+  everything else falls back to fixed-size token windows
 - Vector search via `sqlite-vec` (brute-force KNN, fully local)
 - Automatic delta sync — only re-indexes changed files since last sync
 - Multiple tools, each scoped to a subset of data sources
@@ -18,22 +18,37 @@ Yoink indexes GitHub repositories into a local SQLite vector database and expose
 
 ### Repo types
 
-When you add a repository, you pick a type that drives the include filters
-and the chunking strategy used for every file in the data source.
+When you add a repository, you pick a type that drives the include filter —
+i.e. which files get indexed. The chunking strategy is chosen **per file** by
+the chunker based on path/extension, not per data source, so a single
+`source-code` data source can mix TypeScript code and Markdown docs and each
+file is chunked appropriately.
 
-| Type                       | Strategy           | Best for                                 |
-|----------------------------|--------------------|------------------------------------------|
-| `general`                  | `token-split`      | Mixed-content repos, default             |
-| `documentation`            | `markdown-heading` | Repos dominated by `.md` / `docs/**`     |
-| `source-code`              | `ast-based`        | TS/TSX, JS/JSX, Python, Go, Java, C#, Rust, Ruby |
-| `github-actions-library`   | `file-level`       | `action.yml` collections                 |
-| `cicd-workflows`           | `file-level`       | `.github/workflows/**`                   |
-| `openapi-specs`            | `token-split`      | YAML/JSON API specs                      |
+| Type                       | Indexes                                                                |
+|----------------------------|------------------------------------------------------------------------|
+| `general`                  | everything (no filter)                                                 |
+| `documentation`            | `**/*.md`, `**/*.mdx`, `docs/**`, `wiki/**`                            |
+| `source-code`              | TS/TSX, JS/JSX, Python, Go, Java, C#, Rust, Ruby — plus `.md`/`.mdx`   |
+| `github-actions-library`   | `action.yml` / `action.yaml` and `README.md` at any depth              |
+| `cicd-workflows`           | `.github/workflows/**`                                                 |
+| `openapi-specs`            | YAML/JSON spec files, `openapi/**`, `swagger/**`                       |
 
-For `source-code`, the AST chunker prefixes each method with its enclosing
-class (e.g. `// Class: UserService`) so the embedded text carries context.
-Files with extensions outside the supported language set fall back to
-token-split, so polyglot code repos work without manual configuration.
+### Chunking
+
+Strategy is chosen per file:
+
+| File pattern                               | Strategy                                                      |
+|--------------------------------------------|---------------------------------------------------------------|
+| `*.md`, `*.mdx`                            | split on `#` headings (oversized sections fall back to tokens)|
+| `.github/workflows/*.{yml,yaml}`           | one chunk per file                                            |
+| `action.yml` / `action.yaml` (any depth)   | one chunk per file                                            |
+| Supported source languages (see above)     | one chunk per function / method / class (Tree-sitter AST)     |
+| Everything else                            | fixed-size token windows with overlap                         |
+
+AST method chunks are prefixed with their enclosing class (e.g.
+`// Class: UserService`) so the embedded text carries context. Parse failures
+or files with no definitions fall back to token-split, so polyglot repos
+work without manual configuration.
 
 ## Requirements
 

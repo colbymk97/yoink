@@ -69,7 +69,7 @@ Yoink is a VS Code extension that indexes GitHub repositories into a local SQLit
 
 ```
 GitHub Trees API → fileFilter (glob) → GitHub Blobs API
-  → chunker (strategy chosen by data source preset)
+  → chunker (strategy chosen per file by Chunker.routeStrategy)
   → OpenAI embedding API → better-sqlite3 (chunks + vec0)
 ```
 
@@ -77,21 +77,34 @@ GitHub Trees API → fileFilter (glob) → GitHub Blobs API
 
 ### Chunking
 
-The chunker (`src/ingestion/chunker.ts`) dispatches on a `ChunkingStrategy`, chosen **per data source** by the `RepoTypePreset` (`src/config/repoTypePresets.ts`). All files in a given ingest run go through the same strategy — there is no per-file strategy routing at the top level. Files that don't fit are handled by each strategy's own fallback.
+The chunker (`src/ingestion/chunker.ts`) picks a strategy **per file**, based on path/extension. A single `Chunker` instance handles every file in an ingest run — polyglot repos (code + docs + workflows) are chunked correctly without any per-data-source configuration. `RepoTypePreset` (`src/config/repoTypePresets.ts`) only drives the include-pattern filter; it has no strategy field.
 
-| Strategy           | What it does                                                              | Used by preset(s)                          |
-|--------------------|---------------------------------------------------------------------------|--------------------------------------------|
-| `token-split`      | Fixed-size token windows with overlap (default 512 / 64).                 | `general`, `openapi-specs`                 |
-| `file-level`       | One chunk per file. Good for action.yml, workflow files.                  | `github-actions-library`, `cicd-workflows` |
-| `markdown-heading` | Splits on `#` headings; oversized sections fall back to `token-split`.    | `documentation`                            |
-| `ast-based`        | Tree-sitter — one chunk per top-level function, method, or class.         | `source-code`                              |
+Routing (`Chunker.routeStrategy`, in order):
 
-`ast-based` is the only strategy that does file-type dispatch internally:
+| Match                                         | Strategy           |
+|-----------------------------------------------|--------------------|
+| `*.md`, `*.mdx`                               | `markdown-heading` |
+| `.github/workflows/*.yml` / `*.yaml`          | `file-level`       |
+| `action.yml` / `action.yaml` (any depth)      | `file-level`       |
+| Extension in `languageDetection` table        | `ast-based`        |
+| Everything else                               | `token-split`      |
+
+Strategy behaviors:
+
+| Strategy           | What it does                                                              |
+|--------------------|---------------------------------------------------------------------------|
+| `token-split`      | Fixed-size token windows with overlap (default 512 / 64).                 |
+| `file-level`       | One chunk per file. Good for action.yml and workflow YAML.                |
+| `markdown-heading` | Splits on `#` headings; oversized sections fall back to `token-split`.    |
+| `ast-based`        | Tree-sitter — one chunk per top-level function, method, or class.         |
+
+`ast-based` details:
 - `languageDetection.ts` maps the extension to a supported language
   (TypeScript, TSX, JS/JSX, Python, Go, Java, C#, Rust, Ruby).
-- Unknown extensions, parse failures, or files with no captured definitions
-  fall back to `chunkByTokens` for the whole file — the `ast-based` preset
-  is therefore safe to point at polyglot repos.
+- Parse failures or files with no captured definitions fall back to
+  `chunkByTokens` for the whole file.
+- When `parserRegistry` is absent (e.g. in unit tests), routing degrades
+  AST files to `token-split` rather than throwing.
 - Each method chunk is prefixed with a comment header naming its enclosing
   class (`// Class: UserService` / `# Class: Greeter`). Go uses the receiver,
   Rust uses the `impl` target type.
@@ -99,24 +112,33 @@ The chunker (`src/ingestion/chunker.ts`) dispatches on a `ChunkingStrategy`, cho
   methods cover them, prefixed with the class name); empty classes /
   data classes / interfaces emit as a single chunk.
 - Oversized definitions are split via the strategy's `fallback`
-  (token-split), with line numbers offset to the node's position so search
-  results still point at the right lines.
+  (token-split), with line numbers offset to the node's position.
 
 `Chunker.chunkFile` is `async` because `ast-based` lazy-loads WASM grammars
 on first use. The other strategies await trivially.
+
+`ChunkerOptions` exposes an optional `strategy` field that **forces** a
+single strategy for every file. This is intended for tests; production code
+in `pipeline.ts` leaves it unset so routing is used.
+
+#### How to change the routing table
+
+`Chunker.routeStrategy` in `src/ingestion/chunker.ts` is the single source of
+truth. Add a branch above the default `token-split` return; cover it in
+`test/unit/ingestion/chunker.test.ts` under the `Chunker.routeStrategy`
+block.
 
 #### How to add a new strategy
 
 1. Add the literal to `ChunkingStrategy` in `src/ingestion/chunker.ts`.
 2. Add a private method to `Chunker` implementing it; dispatch from
-   `chunkFile` with a single `if` branch.
-3. If it needs external dependencies (e.g. `ast-based` needs `ParserRegistry`),
-   add an optional field to `ChunkerOptions`, thread it through
-   `pipeline.ts` and `extension.ts`, and assert presence in the dispatch
-   branch.
-4. Add a preset to `REPO_TYPE_PRESETS` that uses the new strategy (and
-   matching `includePatterns`).
-5. Add unit tests in `test/unit/ingestion/`.
+   `Chunker#dispatch` with a single `if` branch.
+3. Add a routing rule to `Chunker.routeStrategy` (or rely on the forced
+   `strategy` option for test-only use).
+4. If it needs external dependencies, add an optional field to
+   `ChunkerOptions`, thread it through `pipeline.ts` and `extension.ts`,
+   and handle absence gracefully in the routing path.
+5. Add unit tests in `test/unit/ingestion/chunker.test.ts`.
 
 #### How to add a new language to the AST strategy
 
@@ -134,8 +156,9 @@ on first use. The other strategies await trivially.
    `src/ingestion/astChunker.ts` so methods get a parent-class prefix.
    For languages without classes (Go-style methods), special-case in
    `resolveContainerName`.
-6. Update the `'source-code'` preset's `includePatterns` to include the
-   new extension.
+6. Update the `source-code` preset's `includePatterns` to include the
+   new extension (the router picks it up automatically via
+   `detectLanguage`).
 7. Add a fixture under `test/fixtures/ast/` and assertions in
    `test/unit/ingestion/astChunker.test.ts`.
 
@@ -143,6 +166,24 @@ Queries live in `src/chunking/queries/` and are copied to `dist/queries/`
 by `scripts/copy-queries.mjs` (chained from `npm run build`). The VSIX
 packaging step (`.vscodeignore`) ships both `dist/queries/**` and
 `node_modules/@vscode/tree-sitter-wasm/**`.
+
+### Repo Type Presets
+
+`REPO_TYPE_PRESETS` (`src/config/repoTypePresets.ts`) is a user-facing
+catalog of default include patterns and tool descriptions — not a strategy
+selector. Each preset answers "what files do I want indexed?":
+
+| Preset                    | Include filter                                                                  |
+|---------------------------|---------------------------------------------------------------------------------|
+| `general`                 | no filter (everything passes)                                                   |
+| `documentation`           | `**/*.md`, `**/*.mdx`, `docs/**`, `wiki/**`                                     |
+| `source-code`             | `**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,java,cs,rs,rb,md,mdx}` — code + inline docs  |
+| `github-actions-library`  | `**/action.yml`, `**/action.yaml`, `**/README.md`                               |
+| `cicd-workflows`          | `.github/workflows/**`                                                          |
+| `openapi-specs`           | `**/*.yaml`, `**/*.yml`, `**/*.json`, `openapi/**`, `swagger/**`                |
+
+A single data source can mix file types — e.g. `source-code` indexes both
+TypeScript and Markdown, and each file gets its own strategy via the router.
 
 ### Query Path (read path)
 
