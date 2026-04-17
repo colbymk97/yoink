@@ -138,7 +138,7 @@ describe('AddRepoWizard', () => {
     expect(dataSourceManager.add).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'github-actions-library',
-        includePatterns: ['**/action.yml', '**/action.yaml', 'README.md'],
+        includePatterns: ['**/action.yml', '**/action.yaml', '**/README.md'],
       }),
     );
   });

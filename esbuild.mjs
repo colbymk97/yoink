@@ -11,6 +11,7 @@ const buildOptions = {
     'vscode',
     'better-sqlite3',
     'sqlite-vec',
+    'web-tree-sitter',
   ],
   format: 'cjs',
   platform: 'node',

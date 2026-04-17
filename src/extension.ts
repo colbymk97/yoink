@@ -12,6 +12,7 @@ import { ChunkStore } from './storage/chunkStore';
 import { EmbeddingStore } from './storage/embeddingStore';
 import { SyncStore } from './storage/syncStore';
 import { IngestionPipeline } from './ingestion/pipeline';
+import { ParserRegistry } from './ingestion/parserRegistry';
 import { Retriever } from './retrieval/retriever';
 import { ContextBuilder } from './retrieval/contextBuilder';
 import { ToolHandler } from './tools/toolHandler';
@@ -51,6 +52,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // Delta sync
   const deltaSync = new DeltaSync(getToken);
 
+  // AST parser registry (lazy — WASM grammars load on first use)
+  const parserRegistry = new ParserRegistry({
+    extensionPath: context.extensionUri.fsPath,
+    queryDir: vscode.Uri.joinPath(context.extensionUri, 'dist', 'queries').fsPath,
+    logger,
+  });
+
   // Ingestion
   const pipeline = new IngestionPipeline(
     configManager,
@@ -61,6 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
     syncStore,
     logger,
     deltaSync,
+    parserRegistry,
   );
 
   // Surface pipeline errors as VS Code notifications

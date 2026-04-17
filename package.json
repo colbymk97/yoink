@@ -218,7 +218,13 @@
         "name": "yoink-search",
         "toolReferenceName": "yoink",
         "canBeReferencedInPrompt": true,
-        "tags": ["yoink", "search", "rag", "github", "codebase"],
+        "tags": [
+          "yoink",
+          "search",
+          "rag",
+          "github",
+          "codebase"
+        ],
         "displayName": "Yoink: Search Repositories",
         "userDescription": "Search your indexed GitHub repositories for relevant code, documentation, or knowledge.",
         "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Use 'repository' to filter by a specific repo (owner/repo format), or 'tool' to use a configured tool scope. Call yoink-list first to discover available repositories and tools.",
@@ -238,14 +244,21 @@
               "description": "Optional: use a configured Yoink tool name to search only its assigned repositories. Get available tool names from yoink-list."
             }
           },
-          "required": ["query"]
+          "required": [
+            "query"
+          ]
         }
       },
       {
         "name": "yoink-list",
         "toolReferenceName": "yoink-list",
         "canBeReferencedInPrompt": true,
-        "tags": ["yoink", "list", "discover", "repositories"],
+        "tags": [
+          "yoink",
+          "list",
+          "discover",
+          "repositories"
+        ],
         "displayName": "Yoink: List Data Sources",
         "userDescription": "List all indexed GitHub repositories and configured search tools in Yoink.",
         "modelDescription": "List all data sources (GitHub repositories) and tools currently indexed and available in Yoink. Call this first to discover what repositories are available before searching. Returns repository names, branches, status, file/chunk counts, and any configured tool scopes.",
@@ -257,7 +270,12 @@
       {
         "name": "yoink-get-file",
         "toolReferenceName": "yoinkGetFile",
-        "tags": ["yoink", "github", "file", "code"],
+        "tags": [
+          "yoink",
+          "github",
+          "file",
+          "code"
+        ],
         "displayName": "Yoink: Get File",
         "userDescription": "Fetch the full content of a file from an indexed GitHub repository.",
         "modelDescription": "Fetch the full or partial content of a file from an indexed GitHub repository. Use this when search results reference a file and you need more context than the returned chunk provides. Provide startLine and endLine to fetch a specific section of a large file.",
@@ -281,13 +299,16 @@
               "description": "Optional. Last line to return (1-indexed). Use line numbers from search results."
             }
           },
-          "required": ["repository", "filePath"]
+          "required": [
+            "repository",
+            "filePath"
+          ]
         }
       }
     ]
   },
   "scripts": {
-    "build": "node esbuild.mjs",
+    "build": "node esbuild.mjs && node scripts/copy-queries.mjs",
     "watch": "node esbuild.mjs --watch",
     "compile": "tsc --noEmit",
     "lint": "eslint src/",
@@ -298,16 +319,18 @@
     "rebuild:native": "electron-rebuild -v 39.8.3 --arch arm64 --only better-sqlite3,sqlite-vec"
   },
   "dependencies": {
+    "@vscode/tree-sitter-wasm": "^0.3.1",
     "better-sqlite3": "^12.8.0",
     "minimatch": "^10.0.1",
     "sqlite-vec": "^0.1.6",
-    "tiktoken": "^1.0.18"
+    "tiktoken": "^1.0.18",
+    "web-tree-sitter": "^0.26.8"
   },
   "optionalDependencies": {
     "sqlite-vec-darwin-arm64": "^0.1.9",
     "sqlite-vec-darwin-x64": "^0.1.9",
-    "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-linux-arm64": "^0.1.9",
+    "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-windows-x64": "^0.1.9"
   },
   "devDependencies": {

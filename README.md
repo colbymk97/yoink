@@ -7,10 +7,48 @@ Yoink indexes GitHub repositories into a local SQLite vector database and expose
 ## Features
 
 - Index any public or private GitHub repository as a searchable data source
+- Per-file chunking — markdown is split on headings, source code is split on
+  functions/methods/classes via Tree-sitter (TS/TSX, JS/JSX, Python, Go, Java,
+  C#, Rust, Ruby), `action.yml` and workflow files are kept whole, and
+  everything else falls back to fixed-size token windows
 - Vector search via `sqlite-vec` (brute-force KNN, fully local)
 - Automatic delta sync — only re-indexes changed files since last sync
 - Multiple tools, each scoped to a subset of data sources
 - OpenAI-compatible embedding API (defaults to `text-embedding-3-small`)
+
+### Repo types
+
+When you add a repository, you pick a type that drives the include filter —
+i.e. which files get indexed. The chunking strategy is chosen **per file** by
+the chunker based on path/extension, not per data source, so a single
+`source-code` data source can mix TypeScript code and Markdown docs and each
+file is chunked appropriately.
+
+| Type                       | Indexes                                                                |
+|----------------------------|------------------------------------------------------------------------|
+| `general`                  | everything (no filter)                                                 |
+| `documentation`            | `**/*.md`, `**/*.mdx`, `docs/**`, `wiki/**`                            |
+| `source-code`              | TS/TSX, JS/JSX, Python, Go, Java, C#, Rust, Ruby — plus `.md`/`.mdx`   |
+| `github-actions-library`   | `action.yml` / `action.yaml` and `README.md` at any depth              |
+| `cicd-workflows`           | `.github/workflows/**`                                                 |
+| `openapi-specs`            | YAML/JSON spec files, `openapi/**`, `swagger/**`                       |
+
+### Chunking
+
+Strategy is chosen per file:
+
+| File pattern                               | Strategy                                                      |
+|--------------------------------------------|---------------------------------------------------------------|
+| `*.md`, `*.mdx`                            | split on `#` headings (oversized sections fall back to tokens)|
+| `.github/workflows/*.{yml,yaml}`           | one chunk per file                                            |
+| `action.yml` / `action.yaml` (any depth)   | one chunk per file                                            |
+| Supported source languages (see above)     | one chunk per function / method / class (Tree-sitter AST)     |
+| Everything else                            | fixed-size token windows with overlap                         |
+
+AST method chunks are prefixed with their enclosing class (e.g.
+`// Class: UserService`) so the embedded text carries context. Parse failures
+or files with no definitions fall back to token-split, so polyglot repos
+work without manual configuration.
 
 ## Requirements
 

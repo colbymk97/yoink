@@ -13,6 +13,9 @@ node_modules/**
 !node_modules/file-uri-to-path/**
 !node_modules/sqlite-vec/**
 !node_modules/sqlite-vec-*/**
+!node_modules/@vscode/tree-sitter-wasm/**
+!node_modules/web-tree-sitter/**
+!dist/queries/**
 tsconfig.json
 vitest.config.ts
 eslint.config.mjs
