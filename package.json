@@ -79,6 +79,10 @@
       {
         "command": "yoink.importConfig",
         "title": "Yoink: Import Config from Workspace"
+      },
+      {
+        "command": "yoink.installAgents",
+        "title": "Yoink: Install Claude Agents"
       }
     ],
     "menus": {
@@ -303,6 +307,54 @@
             "repository",
             "filePath"
           ]
+        }
+      },
+      {
+        "name": "yoink-list-workflows",
+        "toolReferenceName": "yoinkListWorkflows",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "yoink",
+          "cicd",
+          "workflows",
+          "github-actions"
+        ],
+        "displayName": "Yoink: List Workflows",
+        "userDescription": "List all GitHub Actions workflow files in indexed repositories.",
+        "modelDescription": "List all .github/workflows/*.yml files across indexed repositories. Returns workflow name, trigger events, and file path grouped by repo. Pass an optional repository filter (owner/repo). Use this before fetching a specific workflow with yoink-get-file.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "Optional: filter to a specific indexed repository in 'owner/repo' format. Omit to list all."
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "yoink-list-actions",
+        "toolReferenceName": "yoinkListActions",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "yoink",
+          "cicd",
+          "actions",
+          "github-actions"
+        ],
+        "displayName": "Yoink: List Actions",
+        "userDescription": "List all GitHub composite actions in indexed repositories.",
+        "modelDescription": "List all action.yml/action.yaml files at any path depth across indexed repositories. Returns action name, description, and required inputs grouped by repo. Use this to discover reusable actions before writing new automation. Pass an optional repository filter (owner/repo).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "Optional: filter to a specific indexed repository in 'owner/repo' format. Omit to list all."
+            }
+          },
+          "required": []
         }
       }
     ]

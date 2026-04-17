@@ -5,6 +5,7 @@ import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
 import { WorkspaceConfigManager } from '../config/workspaceConfig';
 import { DataSourceTreeItem, ToolTreeItem } from './sidebar/sidebarTreeItems';
+import { AgentInstaller } from '../agents/agentInstaller';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -13,6 +14,7 @@ export function registerCommands(
   providerRegistry: EmbeddingProviderRegistry,
   wizardFactory: () => AddRepoWizard,
   workspaceConfigManager: WorkspaceConfigManager,
+  agentInstaller: AgentInstaller,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('yoink.addRepository', async () => {
@@ -156,6 +158,23 @@ export function registerCommands(
 
     vscode.commands.registerCommand('yoink.importConfig', async () => {
       await workspaceConfigManager.importFromWorkspace();
+    }),
+
+    vscode.commands.registerCommand('yoink.installAgents', async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showErrorMessage('Yoink: Open a workspace folder first to install agents.');
+        return;
+      }
+      try {
+        const count = await agentInstaller.install(folder.uri);
+        vscode.window.showInformationMessage(
+          `Yoink: Installed ${count} agent file${count !== 1 ? 's' : ''} to .claude/agents/`,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Yoink: Failed to install agents — ${message}`);
+      }
     }),
   );
 }

@@ -23,6 +23,7 @@ import { registerCommands } from './ui/commands';
 import { WorkspaceConfigManager } from './config/workspaceConfig';
 import { DeltaSync } from './sources/sync/deltaSync';
 import { Logger } from './util/logger';
+import { AgentInstaller } from './agents/agentInstaller';
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = new Logger();
@@ -113,6 +114,9 @@ export function activate(context: vscode.ExtensionContext): void {
     logger,
   );
 
+  // Agents
+  const agentInstaller = new AgentInstaller(context.extensionUri);
+
   // Commands
   registerCommands(
     context,
@@ -121,6 +125,7 @@ export function activate(context: vscode.ExtensionContext): void {
     providerRegistry,
     () => new AddRepoWizard(resolver, browser, dataSourceManager, configManager, providerRegistry),
     workspaceConfigManager,
+    agentInstaller,
   );
 
   // Sync scheduler
@@ -140,6 +145,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Detect workspace config and prompt import
   workspaceConfigManager.detectAndPrompt();
+
+  // Prompt to install Claude Code agent files on first activation
+  const primaryFolder = vscode.workspace.workspaceFolders?.[0];
+  if (primaryFolder) {
+    agentInstaller.isInstalled(primaryFolder.uri).then((installed) => {
+      if (!installed) {
+        vscode.window
+          .showInformationMessage(
+            'Yoink: Install agent files for Claude Code in this workspace?',
+            'Install',
+            'Later',
+          )
+          .then((choice) => {
+            if (choice === 'Install') {
+              vscode.commands.executeCommand('yoink.installAgents');
+            }
+          });
+      }
+    });
+  }
 
   logger.info('Yoink activated');
 }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ToolHandler } from './toolHandler';
 import { GET_FILE_TOOL } from './getFileTool';
+import { LIST_WORKFLOWS_TOOL, LIST_ACTIONS_TOOL } from './cicdTool';
 import { Logger } from '../util/logger';
 import { ConfigManager } from '../config/configManager';
 
@@ -21,6 +22,8 @@ export class ToolManager implements vscode.Disposable {
     this.registerGlobalSearchTool();
     this.registerListTool();
     this.registerGetFileTool();
+    this.registerListWorkflowsTool();
+    this.registerListActionsTool();
     this.syncRegistrations();
   }
 
@@ -73,12 +76,44 @@ export class ToolManager implements vscode.Disposable {
     this.logger.info('Registered get file tool');
   }
 
+  private registerListWorkflowsTool(): void {
+    if (this.registeredTools.has('__list-workflows__')) return;
+
+    const disposable = vscode.lm.registerTool(LIST_WORKFLOWS_TOOL.name, {
+      invoke: async (options, token) => {
+        return this.toolHandler.handleListWorkflows(
+          options as vscode.LanguageModelToolInvocationOptions<{ repository?: string }>,
+          token,
+        );
+      },
+    });
+
+    this.registeredTools.set('__list-workflows__', disposable);
+    this.logger.info('Registered list-workflows tool');
+  }
+
+  private registerListActionsTool(): void {
+    if (this.registeredTools.has('__list-actions__')) return;
+
+    const disposable = vscode.lm.registerTool(LIST_ACTIONS_TOOL.name, {
+      invoke: async (options, token) => {
+        return this.toolHandler.handleListActions(
+          options as vscode.LanguageModelToolInvocationOptions<{ repository?: string }>,
+          token,
+        );
+      },
+    });
+
+    this.registeredTools.set('__list-actions__', disposable);
+    this.logger.info('Registered list-actions tool');
+  }
+
   private syncRegistrations(): void {
     const configTools = this.configManager.getTools();
     const desiredNames = new Set(
       configTools.map((t) => this.registrationName(t.name)),
     );
-    const reserved = new Set(['__global__', '__getfile__', '__list__']);
+    const reserved = new Set(['__global__', '__getfile__', '__list__', '__list-workflows__', '__list-actions__']);
 
     // Unregister tools no longer in config
     for (const [key, disposable] of this.registeredTools) {
