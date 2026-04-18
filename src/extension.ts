@@ -13,6 +13,7 @@ import { EmbeddingStore } from './storage/embeddingStore';
 import { SyncStore } from './storage/syncStore';
 import { IngestionPipeline } from './ingestion/pipeline';
 import { ParserRegistry } from './ingestion/parserRegistry';
+import { ProgressTracker } from './ingestion/progressTracker';
 import { Retriever } from './retrieval/retriever';
 import { ContextBuilder } from './retrieval/contextBuilder';
 import { ToolHandler } from './tools/toolHandler';
@@ -60,6 +61,9 @@ export function activate(context: vscode.ExtensionContext): void {
     logger,
   });
 
+  // Progress tracking (in-memory, drives sidebar live updates)
+  const progressTracker = new ProgressTracker();
+
   // Ingestion
   const pipeline = new IngestionPipeline(
     configManager,
@@ -71,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
     logger,
     deltaSync,
     parserRegistry,
+    progressTracker,
   );
 
   // Surface pipeline errors as VS Code notifications
@@ -100,7 +105,7 @@ export function activate(context: vscode.ExtensionContext): void {
   toolManager.registerAll();
 
   // Sidebar
-  const dataSourceTreeProvider = new DataSourceTreeProvider(configManager, chunkStore);
+  const dataSourceTreeProvider = new DataSourceTreeProvider(configManager, chunkStore, progressTracker);
   const toolTreeProvider = new ToolTreeProvider(configManager);
   const embeddingTreeProvider = new EmbeddingTreeProvider(providerRegistry, context.secrets);
   vscode.window.registerTreeDataProvider('yoink.dataSources', dataSourceTreeProvider);
@@ -140,6 +145,7 @@ export function activate(context: vscode.ExtensionContext): void {
     toolManager,
     scheduler,
     embeddingTreeProvider,
+    progressTracker,
     logger,
   );
 

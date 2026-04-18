@@ -114,16 +114,90 @@ export function registerCommands(
       }
     }),
 
-    vscode.commands.registerCommand('yoink.editToolFromTree', async (item: ToolTreeItem) => {
-      const newDescription = await vscode.window.showInputBox({
-        prompt: 'Tool description',
-        value: item.tool.description,
+    vscode.commands.registerCommand('yoink.editDataSourceFromTree', async (item: DataSourceTreeItem) => {
+      const ds = item.dataSource;
+      const repoLabel = `${ds.owner}/${ds.repo}`;
+
+      const description = await vscode.window.showInputBox({
+        title: `Edit ${repoLabel} (1/3)`,
+        prompt: 'Description (optional)',
+        value: ds.description ?? '',
         ignoreFocusOut: true,
       });
-      if (newDescription !== undefined) {
-        configManager.updateTool(item.tool.id, { description: newDescription });
-        vscode.window.showInformationMessage(`Updated tool "${item.tool.name}".`);
+      if (description === undefined) return;
+
+      const scheduleItems = [
+        { label: 'Manual', description: 'Only sync when manually triggered', value: 'manual' as const },
+        { label: 'On Startup', description: 'Sync when VS Code starts', value: 'onStartup' as const },
+        { label: 'Daily', description: 'Sync once per day', value: 'daily' as const },
+      ];
+      const currentIdx = scheduleItems.findIndex((s) => s.value === ds.syncSchedule);
+      const schedulePick = await vscode.window.showQuickPick(scheduleItems, {
+        title: `Edit ${repoLabel} (2/3)`,
+        placeHolder: 'Sync schedule',
+        activeItems: currentIdx >= 0 ? [scheduleItems[currentIdx]] : [],
+        ignoreFocusOut: true,
+      });
+      if (!schedulePick) return;
+
+      const includeInput = await vscode.window.showInputBox({
+        title: `Edit ${repoLabel} (3/3)`,
+        prompt: 'Include patterns (comma-separated globs, leave empty for all files)',
+        value: ds.includePatterns.join(', '),
+        ignoreFocusOut: true,
+      });
+      if (includeInput === undefined) return;
+
+      const includePatterns = includeInput
+        ? includeInput.split(',').map((p) => p.trim()).filter(Boolean)
+        : [];
+
+      configManager.updateDataSource(ds.id, {
+        description: description || undefined,
+        syncSchedule: schedulePick.value,
+        includePatterns,
+      });
+      vscode.window.showInformationMessage(`Updated ${repoLabel}.`);
+    }),
+
+    vscode.commands.registerCommand('yoink.editToolFromTree', async (item: ToolTreeItem) => {
+      const tool = item.tool;
+
+      const description = await vscode.window.showInputBox({
+        title: `Edit tool "${tool.name}" (1/2)`,
+        prompt: 'Tool description',
+        value: tool.description,
+        ignoreFocusOut: true,
+      });
+      if (description === undefined) return;
+
+      const allDataSources = configManager.getDataSources();
+      if (allDataSources.length === 0) {
+        configManager.updateTool(tool.id, { description });
+        vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
+        return;
       }
+
+      const dataSourceItems = allDataSources.map((ds) => ({
+        label: `${ds.owner}/${ds.repo}`,
+        description: ds.branch,
+        id: ds.id,
+        picked: tool.dataSourceIds.includes(ds.id),
+      }));
+
+      const picked = await vscode.window.showQuickPick(dataSourceItems, {
+        title: `Edit tool "${tool.name}" (2/2)`,
+        placeHolder: 'Select data sources for this tool',
+        canPickMany: true,
+        ignoreFocusOut: true,
+      });
+      if (picked === undefined) return;
+
+      configManager.updateTool(tool.id, {
+        description,
+        dataSourceIds: picked.map((p) => p.id),
+      });
+      vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
     }),
 
     vscode.commands.registerCommand('yoink.editTool', async () => {

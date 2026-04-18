@@ -7,6 +7,7 @@ export interface DataSourceConfig {
   repo: string;
   branch: string;
   type: DataSourceType;
+  description?: string;
   includePatterns: string[];
   excludePatterns: string[];
   syncSchedule: 'manual' | 'onStartup' | 'daily';
@@ -60,6 +61,7 @@ export interface ShareableDataSource {
   repo: string;
   branch: string;
   type?: DataSourceType;
+  description?: string;
   includePatterns: string[];
   excludePatterns: string[];
   syncSchedule: 'manual' | 'onStartup' | 'daily';

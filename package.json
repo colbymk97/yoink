@@ -31,7 +31,8 @@
     "commands": [
       {
         "command": "yoink.addRepository",
-        "title": "Yoink: Add Repository"
+        "title": "Yoink: Add Repository",
+        "icon": "$(add)"
       },
       {
         "command": "yoink.removeRepository",
@@ -73,6 +74,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "yoink.editDataSourceFromTree",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
         "command": "yoink.exportConfig",
         "title": "Yoink: Export Config to Workspace"
       },
@@ -86,7 +92,19 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "yoink.addRepository",
+          "when": "view == yoink.dataSources",
+          "group": "navigation"
+        }
+      ],
       "view/item/context": [
+        {
+          "command": "yoink.editDataSourceFromTree",
+          "when": "view == yoink.dataSources && viewItem == dataSource",
+          "group": "inline"
+        },
         {
           "command": "yoink.syncDataSourceFromTree",
           "when": "view == yoink.dataSources && viewItem == dataSource",

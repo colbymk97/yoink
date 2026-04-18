@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { DataSourceConfig, ToolConfig } from '../../config/configSchema';
 import { ConfigManager } from '../../config/configManager';
 import { DataSourceStats, FileStats } from '../../storage/chunkStore';
+import { IndexingProgress } from '../../ingestion/progressTracker';
+import { getPricingForModel, formatCost } from '../../embedding/pricing';
 
 export type SidebarTreeItem =
   | DataSourceTreeItem
@@ -17,8 +19,15 @@ const STATUS_ICONS: Record<string, string> = {
   error: '$(error)',
 };
 
+function formatNumber(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
 export class DataSourceTreeItem extends vscode.TreeItem {
-  constructor(public readonly dataSource: DataSourceConfig) {
+  constructor(
+    public readonly dataSource: DataSourceConfig,
+    private readonly progress?: IndexingProgress,
+  ) {
     super(
       `${dataSource.owner}/${dataSource.repo}`,
       dataSource.status === 'ready'
@@ -26,8 +35,15 @@ export class DataSourceTreeItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None,
     );
 
-    const icon = STATUS_ICONS[dataSource.status] || '$(question)';
-    this.description = `${icon} ${dataSource.branch}`;
+    if (dataSource.status === 'indexing' && progress) {
+      const filesText = `${progress.processedFiles}/${progress.totalFiles} files`;
+      const tokensText = `${formatNumber(progress.totalTokens)} tokens`;
+      this.description = `$(sync~spin) ${filesText} · ${tokensText}`;
+    } else {
+      const icon = STATUS_ICONS[dataSource.status] || '$(question)';
+      this.description = `${icon} ${dataSource.branch}`;
+    }
+
     this.tooltip = this.buildTooltip();
     this.contextValue = 'dataSource';
 
@@ -43,8 +59,11 @@ export class DataSourceTreeItem extends vscode.TreeItem {
   private buildTooltip(): string {
     const lines = [
       `${this.dataSource.owner}/${this.dataSource.repo}@${this.dataSource.branch}`,
-      `Status: ${this.dataSource.status}`,
     ];
+    if (this.dataSource.description) {
+      lines.push(this.dataSource.description);
+    }
+    lines.push(`Status: ${this.dataSource.status}`);
     if (this.dataSource.lastSyncedAt) {
       lines.push(`Last synced: ${this.dataSource.lastSyncedAt}`);
     }
@@ -55,12 +74,8 @@ export class DataSourceTreeItem extends vscode.TreeItem {
   }
 }
 
-function formatNumber(n: number): string {
-  return n.toLocaleString('en-US');
-}
-
 export class DataSourceInfoItem extends vscode.TreeItem {
-  constructor(stats: DataSourceStats, dataSource: DataSourceConfig) {
+  constructor(stats: DataSourceStats, dataSource: DataSourceConfig, embeddingModel?: string) {
     const label = `${formatNumber(stats.fileCount)} files · ${formatNumber(stats.chunkCount)} chunks · ${formatNumber(stats.totalTokens)} tokens`;
     super(label, vscode.TreeItemCollapsibleState.None);
 
@@ -73,6 +88,13 @@ export class DataSourceInfoItem extends vscode.TreeItem {
       `Chunks: ${formatNumber(stats.chunkCount)}`,
       `Tokens: ${formatNumber(stats.totalTokens)}`,
     ];
+    if (embeddingModel) {
+      const { costPerToken } = getPricingForModel(embeddingModel);
+      const costStr = formatCost(stats.totalTokens, costPerToken);
+      if (costStr) {
+        lines.push(`Est. indexing cost: ${costStr}`);
+      }
+    }
     if (dataSource.lastSyncedAt) {
       lines.push(`Last synced: ${dataSource.lastSyncedAt}`);
     }

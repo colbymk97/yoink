@@ -11,6 +11,7 @@ import {
 import { EmbeddingProviderRegistry } from '../../embedding/registry';
 import { SETTING_KEYS } from '../../config/settingsSchema';
 import { ChunkStore } from '../../storage/chunkStore';
+import { ProgressTracker } from '../../ingestion/progressTracker';
 
 export class DataSourceTreeProvider
   implements vscode.TreeDataProvider<SidebarTreeItem>
@@ -21,8 +22,10 @@ export class DataSourceTreeProvider
   constructor(
     private readonly configManager: ConfigManager,
     private readonly chunkStore: ChunkStore,
+    private readonly progressTracker: ProgressTracker,
   ) {
     configManager.onDidChange(() => this.refresh());
+    progressTracker.onDidChange(() => this.refresh());
   }
 
   refresh(): void {
@@ -36,7 +39,7 @@ export class DataSourceTreeProvider
   getChildren(element?: SidebarTreeItem): SidebarTreeItem[] {
     if (!element) {
       return this.configManager.getDataSources().map(
-        (ds) => new DataSourceTreeItem(ds),
+        (ds) => new DataSourceTreeItem(ds, this.progressTracker.get(ds.id)),
       );
     }
 
@@ -44,9 +47,12 @@ export class DataSourceTreeProvider
       const dsId = element.dataSource.id;
       const stats = this.chunkStore.getDataSourceStats(dsId);
       const fileStats = this.chunkStore.getFileStats(dsId);
+      const model = vscode.workspace.getConfiguration().get<string>(
+        SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small',
+      );
 
       return [
-        new DataSourceInfoItem(stats, element.dataSource),
+        new DataSourceInfoItem(stats, element.dataSource, model),
         ...fileStats.map((fs) => new DataSourceFileItem(fs)),
       ];
     }

@@ -29,6 +29,9 @@ vi.mock('vscode', () => ({
     fire(data: any) { this.listeners.forEach((l) => l(data)); }
     dispose() {}
   },
+  workspace: {
+    getConfiguration: () => ({ get: (_key: string, defaultValue?: any) => defaultValue }),
+  },
 }));
 
 import {
@@ -215,6 +218,13 @@ describe('DataSourceTreeProvider', () => {
     } as any;
   }
 
+  function makeProgressTracker() {
+    return {
+      get: vi.fn().mockReturnValue(undefined),
+      onDidChange: (cb: () => void) => { return { dispose: vi.fn() }; },
+    } as any;
+  }
+
   it('returns data source tree items from config at root', () => {
     const changeCallbacks: Array<() => void> = [];
     const configManager = {
@@ -222,7 +232,7 @@ describe('DataSourceTreeProvider', () => {
       onDidChange: (cb: () => void) => { changeCallbacks.push(cb); return { dispose: vi.fn() }; },
     } as any;
 
-    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore(), makeProgressTracker());
     const children = provider.getChildren();
 
     expect(children).toHaveLength(2);
@@ -244,7 +254,7 @@ describe('DataSourceTreeProvider', () => {
       ],
     );
 
-    const provider = new DataSourceTreeProvider(configManager, chunkStore);
+    const provider = new DataSourceTreeProvider(configManager, chunkStore, makeProgressTracker());
     const dsItem = new DataSourceTreeItem(makeDs());
     const children = provider.getChildren(dsItem);
 
@@ -262,7 +272,7 @@ describe('DataSourceTreeProvider', () => {
       onDidChange: () => ({ dispose: vi.fn() }),
     } as any;
 
-    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore(), makeProgressTracker());
     const dsItem = new DataSourceTreeItem(makeDs({ status: 'indexing' }));
     const children = provider.getChildren(dsItem);
 
@@ -276,7 +286,7 @@ describe('DataSourceTreeProvider', () => {
       onDidChange: (cb: () => void) => { changeCallbacks.push(cb); return { dispose: vi.fn() }; },
     } as any;
 
-    const provider = new DataSourceTreeProvider(configManager, makeChunkStore());
+    const provider = new DataSourceTreeProvider(configManager, makeChunkStore(), makeProgressTracker());
     const listener = vi.fn();
     provider.onDidChangeTreeData(listener);
 

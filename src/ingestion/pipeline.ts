@@ -6,6 +6,7 @@ import { DeltaSync } from '../sources/sync/deltaSync';
 import { FileFilter } from './fileFilter';
 import { Chunker } from './chunker';
 import { ParserRegistry } from './parserRegistry';
+import { ProgressTracker } from './progressTracker';
 import { ChunkStore, ChunkRecord } from '../storage/chunkStore';
 import { EmbeddingStore } from '../storage/embeddingStore';
 import { SyncStore } from '../storage/syncStore';
@@ -49,6 +50,7 @@ export class IngestionPipeline {
     private readonly logger: PipelineLogger,
     private readonly deltaSync?: DeltaSync,
     private readonly parserRegistry?: ParserRegistry,
+    private readonly progressTracker?: ProgressTracker,
   ) {}
 
   onIndexingError(handler: (dataSourceId: string, message: string) => void): void {
@@ -119,6 +121,7 @@ export class IngestionPipeline {
         status: 'error',
         errorMessage: message,
       });
+      this.progressTracker?.complete(dataSourceId);
       try { this.syncStore.failSync(syncId, message); } catch { /* best-effort */ }
       this.logger.error(`Indexing failed for ${ds.owner}/${ds.repo}: ${message}`);
       for (const handler of this._onIndexingError) {
@@ -165,6 +168,7 @@ export class IngestionPipeline {
       // Fetch and chunk added + modified files
       const toFetch = [...addedFiltered, ...modifiedFiltered];
       if (toFetch.length > 0) {
+        this.progressTracker?.start(dataSourceId, toFetch.length);
         const files = await this.fetcher.fetchFiles(ds.owner, ds.repo, toFetch);
         const provider = await this.embeddingSource.getProvider();
         const chunker = new Chunker({
@@ -180,8 +184,9 @@ export class IngestionPipeline {
         const allChunks: ChunkRecord[] = [];
         for (const file of files) {
           const chunks = await chunker.chunkFile(file.content, file.path);
+          const fileChunks: ChunkRecord[] = [];
           for (const chunk of chunks) {
-            allChunks.push({
+            fileChunks.push({
               id: crypto.randomUUID(),
               dataSourceId,
               filePath: file.path,
@@ -191,6 +196,9 @@ export class IngestionPipeline {
               tokenCount: chunk.tokenCount,
             });
           }
+          allChunks.push(...fileChunks);
+          const fileTokens = fileChunks.reduce((sum, c) => sum + c.tokenCount, 0);
+          this.progressTracker?.fileProcessed(dataSourceId, fileChunks.length, fileTokens);
         }
 
         this.chunkStore.insertMany(allChunks);
@@ -202,6 +210,7 @@ export class IngestionPipeline {
         lastSyncedAt: new Date().toISOString(),
         lastSyncCommitSha: commitSha,
       });
+      this.progressTracker?.complete(dataSourceId);
       this.syncStore.completeSync(syncId, toFetch.length, this.chunkStore.countByDataSource(dataSourceId));
       this.logger.info(`Delta sync complete for ${ds.owner}/${ds.repo}`);
       return true;
@@ -234,6 +243,7 @@ export class IngestionPipeline {
 
     this.logger.info(`Fetching ${filteredEntries.length} files`);
     progress?.report(`Fetching ${filteredEntries.length} files...`);
+    this.progressTracker?.start(dataSourceId, filteredEntries.length);
 
     // Clear existing data for this source (full re-index)
     const oldChunkIds = this.chunkStore.getChunkIdsByDataSource(dataSourceId);
@@ -260,8 +270,9 @@ export class IngestionPipeline {
     const allChunks: ChunkRecord[] = [];
     for (const file of files) {
       const chunks = await chunker.chunkFile(file.content, file.path);
+      const fileChunks: ChunkRecord[] = [];
       for (const chunk of chunks) {
-        allChunks.push({
+        fileChunks.push({
           id: crypto.randomUUID(),
           dataSourceId,
           filePath: file.path,
@@ -271,6 +282,9 @@ export class IngestionPipeline {
           tokenCount: chunk.tokenCount,
         });
       }
+      allChunks.push(...fileChunks);
+      const fileTokens = fileChunks.reduce((sum, c) => sum + c.tokenCount, 0);
+      this.progressTracker?.fileProcessed(dataSourceId, fileChunks.length, fileTokens);
     }
 
     // Store chunks
@@ -286,6 +300,7 @@ export class IngestionPipeline {
       lastSyncedAt: new Date().toISOString(),
       lastSyncCommitSha: commitSha,
     });
+    this.progressTracker?.complete(dataSourceId);
     this.syncStore.completeSync(syncId, files.length, allChunks.length);
     this.logger.info(`Indexed ${allChunks.length} chunks from ${files.length} files`);
   }
