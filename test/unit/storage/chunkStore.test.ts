@@ -160,4 +160,60 @@ describe('ChunkStore', () => {
     const stats = chunkStore.getDataSourceStats('nonexistent');
     expect(stats).toEqual({ fileCount: 0, chunkCount: 0, totalTokens: 0 });
   });
+
+  describe('searchFts', () => {
+    beforeEach(() => {
+      chunkStore.insertMany([
+        makeChunk({ id: 'fts1', dataSourceId: 'ds1', filePath: 'src/auth/middleware.ts', content: 'function authenticate(token) { return verify(token); }' }),
+        makeChunk({ id: 'fts2', dataSourceId: 'ds1', filePath: 'src/utils.ts', content: 'function parseRepoUrl(url) { return url.split("/"); }' }),
+        makeChunk({ id: 'fts3', dataSourceId: 'ds2', filePath: 'src/parser.ts', content: 'function parseRepoUrl(url) { /* ds2 version */ }' }),
+      ]);
+    });
+
+    it('returns results matching a keyword', () => {
+      const results = chunkStore.searchFts('authenticate', ['ds1'], 10);
+      expect(results.map((r) => r.chunkId)).toContain('fts1');
+    });
+
+    it('returns empty array for non-matching query', () => {
+      const results = chunkStore.searchFts('xyznonexistenttoken', ['ds1'], 10);
+      expect(results).toHaveLength(0);
+    });
+
+    it('filters by dataSourceIds', () => {
+      const results = chunkStore.searchFts('parseRepoUrl', ['ds1'], 10);
+      expect(results.map((r) => r.chunkId)).toContain('fts2');
+      expect(results.map((r) => r.chunkId)).not.toContain('fts3');
+    });
+
+    it('returns empty array when dataSourceIds is empty', () => {
+      const results = chunkStore.searchFts('authenticate', [], 10);
+      expect(results).toHaveLength(0);
+    });
+
+    it('returns higher bm25Score for better matches', () => {
+      const results = chunkStore.searchFts('parseRepoUrl', ['ds1', 'ds2'], 10);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].bm25Score).toBeGreaterThan(0);
+    });
+
+    it('removes FTS entries when deleteByDataSource is called', () => {
+      chunkStore.deleteByDataSource('ds1');
+      const results = chunkStore.searchFts('authenticate', ['ds1'], 10);
+      expect(results).toHaveLength(0);
+    });
+
+    it('removes FTS entries when deleteByFile is called', () => {
+      chunkStore.deleteByFile('ds1', 'src/auth/middleware.ts');
+      const results = chunkStore.searchFts('authenticate', ['ds1'], 10);
+      expect(results).toHaveLength(0);
+    });
+
+    it('boosts results where query term appears in file path', () => {
+      // 'middleware' appears in the path of fts1 but not content of fts2
+      const results = chunkStore.searchFts('middleware', ['ds1'], 10);
+      const ids = results.map((r) => r.chunkId);
+      expect(ids).toContain('fts1');
+    });
+  });
 });

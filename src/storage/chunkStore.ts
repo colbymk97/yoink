@@ -31,6 +31,9 @@ export class ChunkStore {
   private readonly countByDataSourceStmt: Database.Statement;
   private readonly fileStatsStmt: Database.Statement;
   private readonly dataSourceStatsStmt: Database.Statement;
+  private readonly ftsInsertStmt: Database.Statement;
+  private readonly ftsDeleteByDataSourceStmt: Database.Statement;
+  private readonly ftsDeleteByFileStmt: Database.Statement;
 
   constructor(private readonly db: Database.Database) {
     this.insertStmt = db.prepare(`
@@ -40,6 +43,15 @@ export class ChunkStore {
     this.deleteByDataSourceStmt = db.prepare('DELETE FROM chunks WHERE data_source_id = ?');
     this.deleteByFileStmt = db.prepare(
       'DELETE FROM chunks WHERE data_source_id = ? AND file_path = ?',
+    );
+    this.ftsInsertStmt = db.prepare(
+      'INSERT INTO chunks_fts (chunk_id, data_source_id, file_path, content) VALUES (?, ?, ?, ?)',
+    );
+    this.ftsDeleteByDataSourceStmt = db.prepare(
+      'DELETE FROM chunks_fts WHERE data_source_id = ?',
+    );
+    this.ftsDeleteByFileStmt = db.prepare(
+      'DELETE FROM chunks_fts WHERE data_source_id = ? AND file_path = ?',
     );
     this.getByIdStmt = db.prepare('SELECT * FROM chunks WHERE id = ?');
     this.getByDataSourceStmt = db.prepare('SELECT * FROM chunks WHERE data_source_id = ?');
@@ -69,12 +81,22 @@ export class ChunkStore {
       chunk.content,
       chunk.tokenCount,
     );
+    this.ftsInsertStmt.run(chunk.id, chunk.dataSourceId, chunk.filePath, chunk.content);
   }
 
   insertMany(chunks: ChunkRecord[]): void {
     const tx = this.db.transaction((items: ChunkRecord[]) => {
       for (const chunk of items) {
-        this.insert(chunk);
+        this.insertStmt.run(
+          chunk.id,
+          chunk.dataSourceId,
+          chunk.filePath,
+          chunk.startLine,
+          chunk.endLine,
+          chunk.content,
+          chunk.tokenCount,
+        );
+        this.ftsInsertStmt.run(chunk.id, chunk.dataSourceId, chunk.filePath, chunk.content);
       }
     });
     tx(chunks);
@@ -82,12 +104,38 @@ export class ChunkStore {
 
   deleteByDataSource(dataSourceId: string): number {
     const result = this.deleteByDataSourceStmt.run(dataSourceId);
+    this.ftsDeleteByDataSourceStmt.run(dataSourceId);
     return result.changes;
   }
 
   deleteByFile(dataSourceId: string, filePath: string): number {
     const result = this.deleteByFileStmt.run(dataSourceId, filePath);
+    this.ftsDeleteByFileStmt.run(dataSourceId, filePath);
     return result.changes;
+  }
+
+  searchFts(
+    query: string,
+    dataSourceIds: string[],
+    topK: number,
+  ): Array<{ chunkId: string; bm25Score: number }> {
+    const clean = sanitizeFtsQuery(query);
+    if (!clean || dataSourceIds.length === 0) return [];
+
+    const placeholders = dataSourceIds.map(() => '?').join(', ');
+    const stmt = this.db.prepare(`
+      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, 5.0, 1.0) AS score
+      FROM chunks_fts
+      WHERE chunks_fts MATCH ?
+        AND data_source_id IN (${placeholders})
+      ORDER BY score DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(clean, ...dataSourceIds, topK) as Array<{
+      chunk_id: string;
+      score: number;
+    }>;
+    return rows.map((r) => ({ chunkId: r.chunk_id, bm25Score: r.score }));
   }
 
   getById(id: string): ChunkRecord | undefined {
@@ -144,6 +192,14 @@ export class ChunkStore {
       totalTokens: row.total_tokens,
     };
   }
+}
+
+function sanitizeFtsQuery(query: string): string {
+  return query
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\w]/g, ''))
+    .filter((t) => t.length >= 2)
+    .join(' ');
 }
 
 function mapRow(row: Record<string, unknown>): ChunkRecord {

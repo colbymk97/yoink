@@ -111,4 +111,41 @@ describe('Retriever', () => {
     expect(results[0].chunk.endLine).toBe(5);
     expect(typeof results[0].distance).toBe('number');
   });
+
+  it('surfaces FTS-only matches (no vector match) in results', async () => {
+    // c2 content is "const x = 42" — poor vector match for [1,0,0,0] but exact keyword match
+    const provider = makeProvider([[1, 0, 0, 0]]);
+    const results = await retriever.search('const', ['ds-1'], provider, 10);
+    const ids = results.map((r) => r.chunk.id);
+    expect(ids).toContain('c2');
+  });
+
+  it('ranks results appearing in both vector and FTS above single-signal results', async () => {
+    // c1 has content "function add(a, b)" — matches both "add function" via FTS
+    // and is vectorally closest to [1,0,0,0]
+    const provider = makeProvider([[1, 0, 0, 0]]);
+    const results = await retriever.search('add function', ['ds-1'], provider, 10);
+    expect(results[0].chunk.id).toBe('c1');
+  });
+
+  it('applies path relevance boost', async () => {
+    // All embeddings equidistant — path match should differentiate
+    const provider = makeProvider([[0.5, 0.5, 0, 0]]);
+    // Insert a chunk whose path contains the query token
+    const dsStore2 = new DataSourceStore(db);
+    dsStore2.insert('ds-path', 'owner', 'path-repo', 'main');
+    const pathChunk: ChunkRecord = {
+      id: 'path-chunk',
+      dataSourceId: 'ds-path',
+      filePath: 'src/authentication/service.ts',
+      startLine: 1, endLine: 5,
+      content: 'placeholder',
+      tokenCount: 5,
+    };
+    chunkStore.insert(pathChunk);
+    embeddingStore.insert('path-chunk', [0.5, 0.5, 0, 0]);
+
+    const results = await retriever.search('authentication', ['ds-path'], provider, 10);
+    expect(results[0].chunk.id).toBe('path-chunk');
+  });
 });

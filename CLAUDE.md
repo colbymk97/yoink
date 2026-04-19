@@ -59,7 +59,24 @@ The workflow (`.github/workflows/release.yml`) runs on any `v*` tag, builds for 
 
 ## Architecture Overview
 
-Yoink is a VS Code extension that indexes GitHub repositories into a local SQLite vector database and exposes them as Copilot Chat tools.
+Yoink is a VS Code extension that indexes GitHub repositories into a local SQLite database and exposes them as Copilot Chat tools. Users configure repos and tools via a sidebar; Copilot agents call the tools to retrieve code, documentation, and structure.
+
+### Module Map
+
+| Directory | Responsibility |
+|-----------|---------------|
+| `src/extension.ts` | Composition root — constructs every service, wires dependencies, holds disposables |
+| `src/config/` | Config schemas, `ConfigManager` (yoink.json), workspace config import/export, repo type presets, VS Code settings keys |
+| `src/sources/` | `DataSourceManager` (add/remove/sync), `dataSource.ts` (status model), GitHub fetcher/resolver/repoBrowser, delta sync, sync scheduler |
+| `src/ingestion/` | `IngestionPipeline`, `Chunker` (strategy router), `AstChunker` (tree-sitter), `fileFilter`, `languageDetection`, `parserRegistry`, `progressTracker` |
+| `src/storage/` | SQLite layer — `database.ts` (migrations), `ChunkStore`, `EmbeddingStore` (vec0 + FTS5), `DataSourceStore`, `SyncStore` |
+| `src/embedding/` | `EmbeddingProvider` interface, OpenAI / Azure OpenAI / local providers, registry, pricing |
+| `src/retrieval/` | `Retriever` (hybrid search: vec KNN + BM25 + path RRF), `ContextBuilder` (formats results as markdown) |
+| `src/tools/` | Tool metadata files (`*Tool.ts`), `ToolHandler` (one method per tool), `ToolManager` (registers with `vscode.lm`) |
+| `src/ui/` | Sidebar tree provider/items, `AddRepoWizard`, command registrations |
+| `src/agents/` | `AgentInstaller` — copies `.md` agent files to `.copilot/agents/` in the workspace |
+| `src/auth/` | GitHub OAuth token management |
+| `src/util/` | `Logger`, disposable helpers |
 
 ### Dependency Wiring
 
@@ -68,9 +85,10 @@ Yoink is a VS Code extension that indexes GitHub repositories into a local SQLit
 ### Data Pipeline (write path)
 
 ```
-GitHub Trees API → fileFilter (glob) → GitHub Blobs API
-  → chunker (strategy chosen per file by Chunker.routeStrategy)
-  → OpenAI embedding API → better-sqlite3 (chunks + vec0)
+GitHub Trees API → fileFilter (glob) → tarball download (full index)
+                                      or blob API (delta sync)
+  → Chunker.routeStrategy (per-file strategy selection)
+  → chunkFile() → EmbeddingProvider.embed() → ChunkStore + EmbeddingStore
 ```
 
 `src/ingestion/pipeline.ts` orchestrates this. A concurrent queue (limit: 3 parallel data sources) is managed inside the pipeline. Status transitions (`queued → indexing → ready | error`) are written to both the SQLite `data_sources` table and `yoink.json`.
@@ -208,12 +226,50 @@ Every built-in tool touches five places. Do all five or the tool won't be visibl
 ### Query Path (read path)
 
 ```
-Copilot invokes tool → toolHandler → Retriever.search()
-  → embed query → vec0 KNN search scoped by data_source_id
-  → JOIN chunks → contextBuilder formats markdown → Copilot
+Copilot invokes tool → ToolHandler method
+  → getReadySources() filters to ready data sources
+  → Retriever.search():
+      ├─ EmbeddingProvider.embed(query) → vec0 KNN (sqlite-vec)    ┐
+      ├─ ChunkStore.searchFts(query)    → FTS5 BM25 (chunks_fts)   ├─ 3× over-fetch each
+      └─ pathRelevance(filePath, queryTokens)                      ┘
+      → Reciprocal Rank Fusion → path boost → top K
+  → ContextBuilder.format() → markdown → Copilot
 ```
 
-Vector search is brute-force KNN via `sqlite-vec` (vec0 virtual table). Always scope searches with `data_source_id IN (...)` to avoid full-table scans.
+Search uses three signals merged with RRF (k=60). See `docs/app/search.md` for full details. Always scope `embeddingStore.search()` calls with `data_source_id IN (...)` to avoid full-table scans.
+
+### Sync System
+
+`SyncScheduler` (`src/sources/sync/syncScheduler.ts`) fires sync jobs on activation (`onStartup` sources) and on a 1-hour tick (`daily` sources). It calls `DataSourceManager.sync()` which delegates to `IngestionPipeline`.
+
+`DeltaSync` (`src/sources/sync/deltaSync.ts`) calls GitHub's Compare API between `lastSyncCommitSha` and HEAD. Added/modified files are re-chunked and re-embedded; deleted files have their chunks, embeddings, and FTS rows removed. A null `lastSyncCommitSha` triggers a full re-index.
+
+### Embedding Providers
+
+`EmbeddingProvider` (`src/embedding/embeddingProvider.ts`): interface with `embed(texts[])`, `dimensions`, and optional `countTokens()`. The registry (`src/embedding/registry.ts`) builds the concrete provider from VS Code settings:
+
+| Provider | Setting value | Dimensions |
+|----------|--------------|------------|
+| OpenAI `text-embedding-3-small` | `openai` (default) | 1536 |
+| Azure OpenAI | `azure-openai` | configurable |
+| Local (no-op / test) | `local` | 4 |
+
+Changing providers requires dropping and recreating the `embeddings` vec0 table — different dimensions make the index incompatible. `recreateEmbeddingsTable()` in `database.ts` handles this.
+
+### Copilot Tools
+
+Six built-in tools registered at activation via `ToolManager.registerAll()`:
+
+| Tool name | Handler method | What it does |
+|-----------|---------------|-------------|
+| `yoink-search` | `handleGlobalSearch` | Hybrid vector + keyword search across indexed repos |
+| `yoink-list` | `handleList` | Lists all data sources and tools with status |
+| `yoink-get-file` | `handleGetFile` | Returns full file content from GitHub (≤ 500 KB, text only) |
+| `yoink-file-tree` | `handleFileTree` | Deterministic directory/file hierarchy from indexed chunks |
+| `yoink-list-workflows` | `handleListWorkflows` | Lists `.github/workflows/` files with triggers |
+| `yoink-list-actions` | `handleListActions` | Lists `action.yml` files with names and inputs |
+
+All tool metadata (name, schema, `modelDescription`) lives in `src/tools/*Tool.ts`. Handlers live in `src/tools/toolHandler.ts`. Every tool must also have a `languageModelTools` entry in `package.json` with `canBeReferencedInPrompt: true` — see "How to add a new Copilot tool" below.
 
 ### Key Abstractions
 
@@ -233,12 +289,25 @@ Two config systems coexist:
 
 Resolution order: `SecretStorage` (OS keychain) → `OPENAI_API_KEY` env var → prompt user. Keys are never written to `settings.json` or `yoink.json`.
 
-### Delta Sync
+### SQLite Schema (v3)
 
-`src/sources/sync/deltaSync.ts` calls GitHub's Compare API between `lastSyncCommitSha` and current HEAD. Added/modified files are re-chunked and re-embedded; deleted files have their chunks and embeddings removed. Full re-index runs when `lastSyncCommitSha` is null.
+| Table | Type | Purpose |
+|-------|------|---------|
+| `meta` | regular | Key-value store — `schema_version`, `embedding_dimensions` |
+| `data_sources` | regular | One row per indexed repo — owner, repo, branch, status, last sync |
+| `chunks` | regular | Indexed content — `file_path`, `start_line`, `end_line`, `content`, `token_count` |
+| `sync_history` | regular | Per-sync audit log — status, files processed, commit SHA |
+| `embeddings` | vec0 virtual | `sqlite-vec` KNN table — `chunk_id`, `embedding FLOAT[N]` |
+| `chunks_fts` | FTS5 virtual | BM25 keyword index — `file_path` (5× weight) + `content` (1× weight) |
 
-### SQLite Schema Notes
+`embeddings` dimensions are fixed at DB creation time (default 1536). Schema version is tracked in `meta`; migrations run in `database.ts:migrate()`. FTS5 uses `porter ascii` tokenizer and is kept in sync by `ChunkStore` on every insert/delete.
 
-The `embeddings` vec0 virtual table is created with a fixed dimension at DB init time (default 1536 for `text-embedding-3-small`). If the embedding model changes, `recreateEmbeddingsTable()` drops and recreates it and all data sources must re-index. Schema version is tracked in the `meta` table.
+All tests use in-memory SQLite databases — no shared state between test files. Storage tests (`test/unit/storage/`) and retrieval tests crash on Apple Silicon under Rosetta (x86_64 Node + arm64 `better-sqlite3`) — they pass on native x86_64 (CI).
 
-All tests use in-memory or temp-directory SQLite databases — no shared state between test files.
+### Docs Structure
+
+```
+docs/
+  app/      — how the running system works (search.md, etc.)
+  specs/    — feature designs, improvement plans, slice tracking
+```
