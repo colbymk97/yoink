@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DEFAULT_DIMENSIONS = 1536;
 
 export interface OpenDatabaseOptions {
@@ -107,7 +107,22 @@ function migrate(db: Database.Database, dimensions: number): void {
       CREATE INDEX IF NOT EXISTS idx_sync_history_ds ON sync_history(data_source_id);
     `);
 
-    setSchemaVersion(db, SCHEMA_VERSION);
+    setSchemaVersion(db, 2);
+  }
+
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+        chunk_id       UNINDEXED,
+        data_source_id UNINDEXED,
+        file_path,
+        content,
+        tokenize = 'porter ascii'
+      );
+      INSERT INTO chunks_fts (chunk_id, data_source_id, file_path, content)
+      SELECT id, data_source_id, file_path, content FROM chunks;
+    `);
+    setSchemaVersion(db, 3);
   }
 }
 

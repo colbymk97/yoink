@@ -8,8 +8,17 @@ import { GitHubFetcher } from '../sources/github/githubFetcher';
 import { SETTING_KEYS } from '../config/settingsSchema';
 import { buildFileTree } from './fileTreeBuilder';
 
-const MAX_LINES = 3000;
-const MAX_CHARS = 80_000;
+const MAX_FILE_BYTES = 500_000;
+
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg',
+  'wasm', 'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar',
+  'exe', 'dll', 'so', 'dylib', 'bin', 'obj', 'o', 'a', 'lib',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'mp3', 'mp4', 'wav', 'ogg', 'avi', 'mov', 'mkv',
+  'ttf', 'woff', 'woff2', 'eot', 'otf',
+  'DS_Store', 'lock',
+]);
 
 export class ToolHandler {
   constructor(
@@ -177,48 +186,53 @@ export class ToolHandler {
       ]);
     }
 
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+    if (BINARY_EXTENSIONS.has(ext)) {
+      return new vscode.LanguageModelToolResult([
+        new vscode.LanguageModelTextPart(
+          `"${filePath}" appears to be a binary file (extension: .${ext}). Only text files are supported.`,
+        ),
+      ]);
+    }
+
     try {
       const raw = await this.fetcher.getFileContents(ds.owner, ds.repo, filePath, ds.branch);
+
+      if (raw.length > MAX_FILE_BYTES) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            `"${filePath}" is too large to return in full (${Math.round(raw.length / 1024)} KB). ` +
+            `Use startLine/endLine to fetch a specific section.`,
+          ),
+        ]);
+      }
+
       const lines = raw.split('\n');
       const totalLines = lines.length;
 
       let sliced: string[];
       let rangeStart: number;
       let rangeEnd: number;
-      let truncated = false;
 
-      if (startLine !== undefined && endLine !== undefined) {
-        rangeStart = Math.max(1, startLine);
-        rangeEnd = Math.min(totalLines, endLine);
+      if (startLine !== undefined || endLine !== undefined) {
+        rangeStart = Math.max(1, startLine ?? 1);
+        rangeEnd = Math.min(totalLines, endLine ?? totalLines);
         sliced = lines.slice(rangeStart - 1, rangeEnd);
       } else {
         rangeStart = 1;
-        let charCount = 0;
-        let cutAt = lines.length;
-        for (let i = 0; i < lines.length; i++) {
-          charCount += lines[i].length + 1;
-          if (i + 1 === MAX_LINES || charCount >= MAX_CHARS) {
-            cutAt = i + 1;
-            break;
-          }
-        }
-        truncated = cutAt < totalLines;
-        sliced = lines.slice(0, cutAt);
-        rangeEnd = cutAt;
+        rangeEnd = totalLines;
+        sliced = lines;
       }
 
       const lang = langHint(filePath);
-      const header =
-        `**${ds.owner}/${ds.repo}** · Branch: \`${ds.branch}\` · \`${filePath}\`\n` +
-        `Lines ${rangeStart}–${rangeEnd} of ${totalLines}`;
+      const rangeNote = (rangeStart !== 1 || rangeEnd !== totalLines)
+        ? ` · Lines ${rangeStart}–${rangeEnd} of ${totalLines}`
+        : ` · ${totalLines} lines`;
+      const header = `**${ds.owner}/${ds.repo}** · \`${ds.branch}\` · \`${filePath}\`${rangeNote}`;
       const body = `\`\`\`${lang}\n${sliced.join('\n')}\n\`\`\``;
-      const notice = truncated
-        ? `\n[File truncated — showing lines 1–${rangeEnd} of ${totalLines}. ` +
-          `Call again with startLine/endLine to fetch a specific range.]`
-        : '';
 
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(`${header}\n\n${body}${notice}`),
+        new vscode.LanguageModelTextPart(`${header}\n\n${body}`),
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

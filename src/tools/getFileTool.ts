@@ -6,10 +6,10 @@ export const GET_FILE_TOOL = {
   name: 'yoink-get-file',
   displayName: 'Yoink: Get File',
   description:
-    'Fetch the full content of a file from an indexed GitHub repository. ' +
-    'Use this when search results reference a file and you need more context ' +
-    'than the returned chunk provides. Provide startLine and endLine to fetch ' +
-    'a specific section of a large file.',
+    'Fetch the complete content of a text file from an indexed GitHub repository. ' +
+    'Always returns the full file in one call — no pagination needed. ' +
+    'Fails for binary files or files over 500 KB. ' +
+    'Use startLine and endLine only to focus on a specific section when you already know the range.',
   inputSchema: {
     type: 'object' as const,
     properties: {

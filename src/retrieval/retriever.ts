@@ -7,6 +7,10 @@ export interface RetrievalResult {
   distance: number;
 }
 
+const RRF_K = 60;
+const OVER_FETCH = 3;
+const PATH_WEIGHT = 0.15;
+
 export class Retriever {
   constructor(
     private readonly chunkStore: ChunkStore,
@@ -20,20 +24,51 @@ export class Retriever {
     topK: number,
   ): Promise<RetrievalResult[]> {
     const [queryEmbedding] = await provider.embed([query]);
+    const fetchK = topK * OVER_FETCH;
 
-    const searchResults =
+    const vecResults =
       dataSourceIds.length > 0
-        ? this.embeddingStore.search(queryEmbedding, dataSourceIds, topK)
-        : this.embeddingStore.searchAll(queryEmbedding, topK);
+        ? this.embeddingStore.search(queryEmbedding, dataSourceIds, fetchK)
+        : this.embeddingStore.searchAll(queryEmbedding, fetchK);
+
+    const ftsResults = this.chunkStore.searchFts(query, dataSourceIds, fetchK);
+
+    const vecRank = new Map(vecResults.map((r, i) => [r.chunkId, i + 1]));
+    const ftsRank = new Map(ftsResults.map((r, i) => [r.chunkId, i + 1]));
+
+    const candidateIds = new Set([
+      ...vecResults.map((r) => r.chunkId),
+      ...ftsResults.map((r) => r.chunkId),
+    ]);
+
+    const penalty = fetchK + 1;
+    const queryTokens = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
 
     const results: RetrievalResult[] = [];
-    for (const result of searchResults) {
-      const chunk = this.chunkStore.getById(result.chunkId);
-      if (chunk) {
-        results.push({ chunk, distance: result.distance });
-      }
+    for (const id of candidateIds) {
+      const chunk = this.chunkStore.getById(id);
+      if (!chunk) continue;
+
+      const vRank = vecRank.get(id) ?? penalty;
+      const fRank = ftsRank.get(id) ?? penalty;
+      const rrfScore = 1 / (RRF_K + vRank) + 1 / (RRF_K + fRank);
+      const pathScore = pathRelevance(chunk.filePath, queryTokens);
+
+      // Negate so lower distance = better (preserves existing caller contract)
+      results.push({ chunk, distance: -(rrfScore + PATH_WEIGHT * pathScore) });
     }
 
-    return results;
+    results.sort((a, b) => a.distance - b.distance);
+    return results.slice(0, topK);
   }
+}
+
+function pathRelevance(filePath: string, queryTokens: string[]): number {
+  if (queryTokens.length === 0) return 0;
+  const lower = filePath.toLowerCase();
+  const matches = queryTokens.filter((t) => lower.includes(t)).length;
+  return matches / queryTokens.length;
 }
