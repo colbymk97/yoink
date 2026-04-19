@@ -185,6 +185,26 @@ selector. Each preset answers "what files do I want indexed?":
 A single data source can mix file types — e.g. `source-code` indexes both
 TypeScript and Markdown, and each file gets its own strategy via the router.
 
+### How to add a new Copilot tool
+
+Every built-in tool touches five places. Do all five or the tool won't be visible to the LLM.
+
+1. **`src/tools/<name>Tool.ts`** — tool metadata only (name, displayName, description, inputSchema). Follow the pattern in `getFileTool.ts`.
+
+2. **`src/tools/toolHandler.ts`** — add an `async handle<Name>(options, token)` method. Call `getReadySources(options.input.repository)` to resolve and validate the target data sources, then return a `vscode.LanguageModelToolResult`.
+
+3. **`src/tools/toolManager.ts`** — add a private `register<Name>Tool()` method following the pattern of `registerGetFileTool()` (lines 58–77). Call it from `registerAll()`. Add its internal key (e.g. `'__name__'`) to the `reserved` set so `syncRegistrations()` doesn't unregister it.
+
+4. **`package.json` `contributes.languageModelTools`** — add a full entry with:
+   - `"canBeReferencedInPrompt": true` — **required** for the tool to be visible and referenceable in Copilot Chat
+   - `"modelDescription"` — written for the LLM: when to call this tool, what it returns, how it relates to other tools
+   - `"userDescription"` — one sentence for the VS Code UI
+   - `"inputSchema"` — must match the TypeScript input type exactly
+
+5. **`agents/yoink-agent.md`** — add a row to the Tools Available table and update the Workflow / Best Practices sections if the tool changes recommended call order. Also update `agents/yoink-cicd-agent.md` if relevant to CI/CD workflows.
+
+**Tests:** add unit tests in `test/unit/tools/`. Pure logic (tree building, formatting, filtering) belongs in a dedicated helper file so it can be tested without vscode or sqlite.
+
 ### Query Path (read path)
 
 ```

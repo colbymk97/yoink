@@ -6,6 +6,7 @@ import { ContextBuilder } from '../retrieval/contextBuilder';
 import { ChunkStore } from '../storage/chunkStore';
 import { GitHubFetcher } from '../sources/github/githubFetcher';
 import { SETTING_KEYS } from '../config/settingsSchema';
+import { buildFileTree } from './fileTreeBuilder';
 
 const MAX_LINES = 3000;
 const MAX_CHARS = 80_000;
@@ -318,6 +319,42 @@ export class ToolHandler {
     }
 
     return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(lines.join('\n'))]);
+  }
+
+  async handleFileTree(
+    options: vscode.LanguageModelToolInvocationOptions<{
+      repository: string;
+      path?: string;
+      maxDepth?: number;
+      include?: string[];
+      exclude?: string[];
+      page?: number;
+      pageSize?: number;
+    }>,
+    _token: vscode.CancellationToken,
+  ): Promise<vscode.LanguageModelToolResult> {
+    const { repository, path: rootPath, maxDepth, include, exclude, page, pageSize } = options.input;
+    const sources = this.getReadySources(repository);
+    if (typeof sources === 'string') {
+      return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(sources)]);
+    }
+
+    const sections: string[] = [];
+    for (const ds of sources) {
+      const fileStats = this.chunkStore.getFileStats(ds.id);
+      const result = buildFileTree(fileStats, { rootPath, maxDepth, include, exclude, page, pageSize });
+
+      const header = `${ds.owner}/${ds.repo}@${ds.branch} — ${fileStats.length} file${fileStats.length !== 1 ? 's' : ''}, ${fileStats.reduce((s, f) => s + f.tokenCount, 0).toLocaleString()} tokens`;
+      const pagination = result.totalPages > 1
+        ? `\nPage ${result.page}/${result.totalPages} — pass page: ${result.page + 1} to see more`
+        : '';
+
+      sections.push(`${header}${pagination}\n\n${result.text}`);
+    }
+
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(sections.join('\n\n---\n\n')),
+    ]);
   }
 
   private getReadySources(repositoryFilter?: string): import('../config/configSchema').DataSourceConfig[] | string {

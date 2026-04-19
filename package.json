@@ -292,6 +292,7 @@
       {
         "name": "yoink-get-file",
         "toolReferenceName": "yoinkGetFile",
+        "canBeReferencedInPrompt": true,
         "tags": [
           "yoink",
           "github",
@@ -373,6 +374,56 @@
             }
           },
           "required": []
+        }
+      },
+      {
+        "name": "yoink-file-tree",
+        "toolReferenceName": "yoinkFileTree",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "yoink",
+          "github",
+          "structure",
+          "navigation"
+        ],
+        "displayName": "Yoink: File Tree",
+        "userDescription": "Browse the directory structure of an indexed GitHub repository.",
+        "modelDescription": "Return a deterministic directory/file hierarchy for an indexed repository. Use this to orient yourself before searching — see what files exist, where they live, and which are tests, config, docs, or workflows. Faster and more complete than inferring structure from search results. Supports subtree focus (path), depth limiting (maxDepth), glob filtering (include/exclude), and pagination for large repos. Files are annotated with language, token count, and flags (test, docs, workflow, action, config).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "The indexed repository in 'owner/repo' format (e.g. 'vercel/next.js')."
+            },
+            "path": {
+              "type": "string",
+              "description": "Subtree root to show (default: repo root). E.g. 'src/' to scope to the src directory."
+            },
+            "maxDepth": {
+              "type": "number",
+              "description": "Max directory depth to expand (default 5, max 10). Use a lower value for a high-level overview."
+            },
+            "include": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns to include (e.g. [\"**/*.ts\"]). Applied to full file paths."
+            },
+            "exclude": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns to exclude. Applied to full file paths."
+            },
+            "page": {
+              "type": "number",
+              "description": "1-indexed page number (default 1). Use when the tree is large and paginated."
+            },
+            "pageSize": {
+              "type": "number",
+              "description": "Lines per page (default 200, max 500)."
+            }
+          },
+          "required": ["repository"]
         }
       }
     ]

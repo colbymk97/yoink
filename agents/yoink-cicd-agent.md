@@ -15,6 +15,7 @@ Help developers working on CI/CD tasks to:
 | `yoink-list-workflows` | Enumerate all indexed workflow files — names, triggers, file paths |
 | `yoink-list-actions` | Enumerate all indexed GitHub Actions — names, inputs, file paths |
 | `yoink-get-file` | Fetch the full YAML of a specific workflow or action by file path |
+| `yoink-file-tree` | Browse the full repo structure — useful for exploring `.github/` layout or finding action paths |
 | `yoink-search` | Semantic search when you need to find a concept or capability across repos |
 | `yoink-list` | List all indexed repositories and their ready/indexing status |
 

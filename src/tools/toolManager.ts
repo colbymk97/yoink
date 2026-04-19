@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ToolHandler } from './toolHandler';
 import { GET_FILE_TOOL } from './getFileTool';
 import { LIST_WORKFLOWS_TOOL, LIST_ACTIONS_TOOL } from './cicdTool';
+import { FILE_TREE_TOOL } from './fileTreeTool';
 import { Logger } from '../util/logger';
 import { ConfigManager } from '../config/configManager';
 
@@ -24,6 +25,7 @@ export class ToolManager implements vscode.Disposable {
     this.registerGetFileTool();
     this.registerListWorkflowsTool();
     this.registerListActionsTool();
+    this.registerFileTreeTool();
     this.syncRegistrations();
   }
 
@@ -108,12 +110,36 @@ export class ToolManager implements vscode.Disposable {
     this.logger.info('Registered list-actions tool');
   }
 
+  private registerFileTreeTool(): void {
+    if (this.registeredTools.has('__file-tree__')) return;
+
+    const disposable = vscode.lm.registerTool(FILE_TREE_TOOL.name, {
+      invoke: async (options, token) => {
+        return this.toolHandler.handleFileTree(
+          options as vscode.LanguageModelToolInvocationOptions<{
+            repository: string;
+            path?: string;
+            maxDepth?: number;
+            include?: string[];
+            exclude?: string[];
+            page?: number;
+            pageSize?: number;
+          }>,
+          token,
+        );
+      },
+    });
+
+    this.registeredTools.set('__file-tree__', disposable);
+    this.logger.info('Registered file-tree tool');
+  }
+
   private syncRegistrations(): void {
     const configTools = this.configManager.getTools();
     const desiredNames = new Set(
       configTools.map((t) => this.registrationName(t.name)),
     );
-    const reserved = new Set(['__global__', '__getfile__', '__list__', '__list-workflows__', '__list-actions__']);
+    const reserved = new Set(['__global__', '__getfile__', '__list__', '__list-workflows__', '__list-actions__', '__file-tree__']);
 
     // Unregister tools no longer in config
     for (const [key, disposable] of this.registeredTools) {

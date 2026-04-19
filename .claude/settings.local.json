@@ -48,7 +48,8 @@
       "Bash(curl -s https://api.github.com/repos/WiseLibs/better-sqlite3/releases/tags/v12.8.0)",
       "Bash(curl -s https://api.github.com/repos/WiseLibs/better-sqlite3/releases/latest)",
       "Bash(awk '{print $2}')",
-      "Bash(npm ls *)"
+      "Bash(npm ls *)",
+      "Bash(xargs cat *)"
     ]
   }
 }
