@@ -19,17 +19,9 @@ export interface DataSourceConfig {
 
 export type DataSourceStatus = 'queued' | 'indexing' | 'ready' | 'error';
 
-export interface ToolConfig {
-  id: string;
-  name: string;
-  description: string;
-  dataSourceIds: string[];
-}
-
 export interface YoinkConfig {
   version: number;
   dataSources: DataSourceConfig[];
-  tools: ToolConfig[];
   defaultExcludePatterns: string[];
 }
 
@@ -67,17 +59,10 @@ export interface ShareableDataSource {
   syncSchedule: 'manual' | 'onStartup' | 'daily';
 }
 
-export interface ShareableTool {
-  name: string;
-  description: string;
-  dataSources: string[]; // "owner/repo@branch" references
-}
-
 export interface ShareableConfig {
   $schema?: string;
   version: number;
   dataSources: ShareableDataSource[];
-  tools: ShareableTool[];
   defaultExcludePatterns?: string[];
 }
 
@@ -85,7 +70,6 @@ export function createDefaultConfig(): YoinkConfig {
   return {
     version: 1,
     dataSources: [],
-    tools: [],
     defaultExcludePatterns: [...DEFAULT_EXCLUDE_PATTERNS],
   };
 }

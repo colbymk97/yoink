@@ -4,7 +4,7 @@ import { DataSourceManager } from '../sources/dataSourceManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
 import { WorkspaceConfigManager } from '../config/workspaceConfig';
-import { DataSourceTreeItem, ToolTreeItem } from './sidebar/sidebarTreeItems';
+import { DataSourceTreeItem } from './sidebar/sidebarTreeItems';
 import { AgentInstaller } from '../agents/agentInstaller';
 
 export function registerCommands(
@@ -158,72 +158,6 @@ export function registerCommands(
         includePatterns,
       });
       vscode.window.showInformationMessage(`Updated ${repoLabel}.`);
-    }),
-
-    vscode.commands.registerCommand('yoink.editToolFromTree', async (item: ToolTreeItem) => {
-      const tool = item.tool;
-
-      const description = await vscode.window.showInputBox({
-        title: `Edit tool "${tool.name}" (1/2)`,
-        prompt: 'Tool description',
-        value: tool.description,
-        ignoreFocusOut: true,
-      });
-      if (description === undefined) return;
-
-      const allDataSources = configManager.getDataSources();
-      if (allDataSources.length === 0) {
-        configManager.updateTool(tool.id, { description });
-        vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
-        return;
-      }
-
-      const dataSourceItems = allDataSources.map((ds) => ({
-        label: `${ds.owner}/${ds.repo}`,
-        description: ds.branch,
-        id: ds.id,
-        picked: tool.dataSourceIds.includes(ds.id),
-      }));
-
-      const picked = await vscode.window.showQuickPick(dataSourceItems, {
-        title: `Edit tool "${tool.name}" (2/2)`,
-        placeHolder: 'Select data sources for this tool',
-        canPickMany: true,
-        ignoreFocusOut: true,
-      });
-      if (picked === undefined) return;
-
-      configManager.updateTool(tool.id, {
-        description,
-        dataSourceIds: picked.map((p) => p.id),
-      });
-      vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
-    }),
-
-    vscode.commands.registerCommand('yoink.editTool', async () => {
-      const tools = configManager.getTools();
-      if (tools.length === 0) {
-        vscode.window.showInformationMessage('No tools configured.');
-        return;
-      }
-      const picked = await vscode.window.showQuickPick(
-        tools.map((t) => ({ label: t.name, description: t.description, id: t.id })),
-        { placeHolder: 'Select a tool to edit' },
-      );
-      if (!picked) return;
-
-      const tool = configManager.getTool(picked.id);
-      if (!tool) return;
-
-      const newDescription = await vscode.window.showInputBox({
-        prompt: 'Tool description',
-        value: tool.description,
-        ignoreFocusOut: true,
-      });
-      if (newDescription !== undefined) {
-        configManager.updateTool(picked.id, { description: newDescription });
-        vscode.window.showInformationMessage(`Updated tool "${tool.name}".`);
-      }
     }),
 
     vscode.commands.registerCommand('yoink.exportConfig', async () => {

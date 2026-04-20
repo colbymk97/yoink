@@ -18,7 +18,7 @@ import { Retriever } from './retrieval/retriever';
 import { ContextBuilder } from './retrieval/contextBuilder';
 import { ToolHandler } from './tools/toolHandler';
 import { ToolManager } from './tools/toolManager';
-import { DataSourceTreeProvider, ToolTreeProvider, EmbeddingTreeProvider } from './ui/sidebar/sidebarProvider';
+import { DataSourceTreeProvider, EmbeddingTreeProvider } from './ui/sidebar/sidebarProvider';
 import { AddRepoWizard } from './ui/wizard/addRepoWizard';
 import { registerCommands } from './ui/commands';
 import { WorkspaceConfigManager } from './config/workspaceConfig';
@@ -101,15 +101,13 @@ export function activate(context: vscode.ExtensionContext): void {
     chunkStore,
     fetcher,
   );
-  const toolManager = new ToolManager(toolHandler, logger, configManager);
+  const toolManager = new ToolManager(toolHandler, logger);
   toolManager.registerAll();
 
   // Sidebar
   const dataSourceTreeProvider = new DataSourceTreeProvider(configManager, chunkStore, progressTracker);
-  const toolTreeProvider = new ToolTreeProvider(configManager);
   const embeddingTreeProvider = new EmbeddingTreeProvider(providerRegistry, context.secrets);
   vscode.window.registerTreeDataProvider('yoink.dataSources', dataSourceTreeProvider);
-  vscode.window.registerTreeDataProvider('yoink.tools', toolTreeProvider);
   vscode.window.registerTreeDataProvider('yoink.embedding', embeddingTreeProvider);
 
   // Workspace config (shareable)
@@ -128,7 +126,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configManager,
     dataSourceManager,
     providerRegistry,
-    () => new AddRepoWizard(resolver, browser, dataSourceManager, configManager, providerRegistry),
+    () => new AddRepoWizard(resolver, browser, dataSourceManager, providerRegistry),
     workspaceConfigManager,
     agentInstaller,
   );

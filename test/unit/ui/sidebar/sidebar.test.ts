@@ -38,10 +38,9 @@ import {
   DataSourceTreeItem,
   DataSourceInfoItem,
   DataSourceFileItem,
-  ToolTreeItem,
 } from '../../../../src/ui/sidebar/sidebarTreeItems';
-import { DataSourceTreeProvider, ToolTreeProvider } from '../../../../src/ui/sidebar/sidebarProvider';
-import { DataSourceConfig, ToolConfig } from '../../../../src/config/configSchema';
+import { DataSourceTreeProvider } from '../../../../src/ui/sidebar/sidebarProvider';
+import { DataSourceConfig } from '../../../../src/config/configSchema';
 
 function makeDs(overrides: Partial<DataSourceConfig> = {}): DataSourceConfig {
   return {
@@ -173,42 +172,6 @@ describe('DataSourceFileItem', () => {
   });
 });
 
-describe('ToolTreeItem', () => {
-  const configManager = {
-    getDataSource: (id: string) =>
-      id === 'ds-1' ? makeDs() : undefined,
-  } as any;
-
-  it('displays tool name as label', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'my-tool', description: 'Desc', dataSourceIds: ['ds-1'] };
-    const item = new ToolTreeItem(tool, configManager);
-    expect(item.label).toBe('my-tool');
-  });
-
-  it('shows source count in description', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'tool', description: '', dataSourceIds: ['ds-1'] };
-    const item = new ToolTreeItem(tool, configManager);
-    expect(item.description).toBe('1 source');
-  });
-
-  it('pluralizes sources correctly', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'tool', description: '', dataSourceIds: ['ds-1', 'ds-2'] };
-    const item = new ToolTreeItem(tool, configManager);
-    expect(item.description).toBe('2 sources');
-  });
-
-  it('shows repo names in tooltip', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'tool', description: 'Desc', dataSourceIds: ['ds-1'] };
-    const item = new ToolTreeItem(tool, configManager);
-    expect(item.tooltip).toContain('acme/widgets');
-  });
-
-  it('sets contextValue to tool', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'tool', description: '', dataSourceIds: [] };
-    const item = new ToolTreeItem(tool, configManager);
-    expect(item.contextValue).toBe('tool');
-  });
-});
 
 describe('DataSourceTreeProvider', () => {
   function makeChunkStore(stats = { fileCount: 0, chunkCount: 0, totalTokens: 0 }, fileStats: any[] = []) {
@@ -295,19 +258,3 @@ describe('DataSourceTreeProvider', () => {
   });
 });
 
-describe('ToolTreeProvider', () => {
-  it('returns tool tree items from config', () => {
-    const tool: ToolConfig = { id: 't-1', name: 'my-tool', description: '', dataSourceIds: [] };
-    const configManager = {
-      getTools: () => [tool],
-      getDataSource: () => undefined,
-      onDidChange: (cb: () => void) => ({ dispose: vi.fn() }),
-    } as any;
-
-    const provider = new ToolTreeProvider(configManager);
-    const children = provider.getChildren();
-
-    expect(children).toHaveLength(1);
-    expect(children[0].label).toBe('my-tool');
-  });
-});

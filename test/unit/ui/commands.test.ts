@@ -28,6 +28,7 @@ describe('registerCommands', () => {
   let wizardFactory: any;
   let context: any;
   let workspaceConfigManager: any;
+  let agentInstaller: any;
 
   const ds1: DataSourceConfig = {
     id: 'ds-1', repoUrl: '', owner: 'acme', repo: 'widgets', branch: 'main',
@@ -41,11 +42,6 @@ describe('registerCommands', () => {
 
     configManager = {
       getDataSources: vi.fn().mockReturnValue([ds1]),
-      getTools: vi.fn().mockReturnValue([
-        { id: 't-1', name: 'my-tool', description: 'A tool', dataSourceIds: ['ds-1'] },
-      ]),
-      getTool: vi.fn().mockReturnValue({ id: 't-1', name: 'my-tool', description: 'A tool', dataSourceIds: ['ds-1'] }),
-      updateTool: vi.fn(),
     };
     dataSourceManager = {
       remove: vi.fn(),
@@ -60,9 +56,12 @@ describe('registerCommands', () => {
       exportConfig: vi.fn(),
       importFromWorkspace: vi.fn(),
     };
+    agentInstaller = {
+      install: vi.fn().mockResolvedValue(2),
+    };
     context = { subscriptions: { push: vi.fn() } };
 
-    registerCommands(context, configManager, dataSourceManager, providerRegistry, wizardFactory, workspaceConfigManager);
+    registerCommands(context, configManager, dataSourceManager, providerRegistry, wizardFactory, workspaceConfigManager, agentInstaller);
   });
 
   it('registers all expected commands', () => {
@@ -71,7 +70,6 @@ describe('registerCommands', () => {
     expect(commands.has('yoink.syncDataSource')).toBe(true);
     expect(commands.has('yoink.syncAllDataSources')).toBe(true);
     expect(commands.has('yoink.setApiKey')).toBe(true);
-    expect(commands.has('yoink.editTool')).toBe(true);
   });
 
   it('addRepository runs the wizard', async () => {
@@ -142,29 +140,6 @@ describe('registerCommands', () => {
     await commands.get('yoink.setApiKey')!();
 
     expect(providerRegistry.setApiKey).not.toHaveBeenCalled();
-  });
-
-  it('editTool updates tool description', async () => {
-    (vscode.window.showQuickPick as any).mockResolvedValue({
-      label: 'my-tool', id: 't-1',
-    });
-    (vscode.window.showInputBox as any).mockResolvedValue('Updated description');
-
-    await commands.get('yoink.editTool')!();
-
-    expect(configManager.updateTool).toHaveBeenCalledWith('t-1', {
-      description: 'Updated description',
-    });
-  });
-
-  it('editTool shows message when no tools configured', async () => {
-    configManager.getTools.mockReturnValue([]);
-
-    await commands.get('yoink.editTool')!();
-
-    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-      'No tools configured.',
-    );
   });
 
   it('registers export and import commands', () => {

@@ -14,27 +14,19 @@ vi.mock('vscode', () => ({
 }));
 
 vi.mock('fs');
-vi.mock('crypto', () => ({
-  randomUUID: vi.fn().mockReturnValue('generated-uuid'),
-}));
 
 import * as vscode from 'vscode';
 import { WorkspaceConfigManager } from '../../../src/config/workspaceConfig';
-import { ShareableConfig, DataSourceConfig, ToolConfig } from '../../../src/config/configSchema';
+import { ShareableConfig, DataSourceConfig } from '../../../src/config/configSchema';
 
 function makeConfigManager(opts: {
   dataSources?: DataSourceConfig[];
-  tools?: ToolConfig[];
 } = {}) {
   const dataSources = opts.dataSources ?? [];
-  const tools = opts.tools ?? [];
 
   return {
     getDataSources: vi.fn().mockReturnValue(dataSources),
     getDataSource: vi.fn((id: string) => dataSources.find((d) => d.id === id)),
-    getTools: vi.fn().mockReturnValue(tools),
-    getTool: vi.fn((id: string) => tools.find((t) => t.id === id)),
-    addTool: vi.fn(),
     getDefaultExcludePatterns: vi.fn().mockReturnValue([]),
     getConfig: vi.fn().mockReturnValue({ defaultExcludePatterns: [] }),
     flush: vi.fn(),
@@ -95,35 +87,9 @@ describe('WorkspaceConfigManager', () => {
         excludePatterns: ['**/*.test.ts'],
         syncSchedule: 'onStartup',
       });
-      // Runtime state fields should not be present
       expect(result.dataSources[0]).not.toHaveProperty('id');
       expect(result.dataSources[0]).not.toHaveProperty('status');
       expect(result.dataSources[0]).not.toHaveProperty('lastSyncedAt');
-    });
-
-    it('maps tool dataSourceIds to owner/repo@branch references', () => {
-      const ds = makeDs('acme', 'widgets', 'main', 'ds-1');
-      const tool: ToolConfig = { id: 't-1', name: 'search', description: 'Search', dataSourceIds: ['ds-1'] };
-
-      const configManager = makeConfigManager({ dataSources: [ds], tools: [tool] });
-      const mgr = new WorkspaceConfigManager(configManager, makeDataSourceManager(), makeLogger());
-
-      const result = mgr.buildShareableConfig();
-
-      expect(result.tools).toHaveLength(1);
-      expect(result.tools[0].dataSources).toEqual(['acme/widgets@main']);
-      expect(result.tools[0]).not.toHaveProperty('id');
-      expect(result.tools[0]).not.toHaveProperty('dataSourceIds');
-    });
-
-    it('drops orphaned tool data source references', () => {
-      const tool: ToolConfig = { id: 't-1', name: 'search', description: 'Search', dataSourceIds: ['nonexistent'] };
-      const configManager = makeConfigManager({ tools: [tool] });
-      const mgr = new WorkspaceConfigManager(configManager, makeDataSourceManager(), makeLogger());
-
-      const result = mgr.buildShareableConfig();
-
-      expect(result.tools[0].dataSources).toEqual([]);
     });
 
     it('does not include defaultExcludePatterns when they match defaults', () => {
@@ -135,18 +101,15 @@ describe('WorkspaceConfigManager', () => {
 
       const result = mgr.buildShareableConfig();
 
-      // With only 2 patterns vs the full default list, they differ, so it would be included
-      // But let's test with the exact defaults
       expect(result).toHaveProperty('$schema');
       expect(result.version).toBe(1);
     });
   });
 
   describe('importConfig', () => {
-    it('adds new data sources and tools', async () => {
+    it('adds new data sources', async () => {
       const configManager = makeConfigManager();
       const dsMgr = makeDataSourceManager();
-      // After add, the data source should be findable for tool reference resolution
       dsMgr.add.mockImplementation(async (opts: any) => {
         const ds = makeDs(opts.owner, opts.repo, opts.branch, 'new-ds-id');
         configManager.getDataSources.mockReturnValue([ds]);
@@ -163,26 +126,14 @@ describe('WorkspaceConfigManager', () => {
           includePatterns: [], excludePatterns: [],
           syncSchedule: 'manual',
         }],
-        tools: [{
-          name: 'search',
-          description: 'Search widgets',
-          dataSources: ['acme/widgets@main'],
-        }],
       };
 
       const result = await mgr.importConfig(shareable);
 
       expect(result.dataSourcesAdded).toBe(1);
-      expect(result.toolsAdded).toBe(1);
       expect(result.dataSourcesSkipped).toBe(0);
-      expect(result.toolsSkipped).toBe(0);
       expect(dsMgr.add).toHaveBeenCalledWith(expect.objectContaining({
         owner: 'acme', repo: 'widgets', branch: 'main',
-      }));
-      expect(configManager.addTool).toHaveBeenCalledWith(expect.objectContaining({
-        name: 'search',
-        description: 'Search widgets',
-        dataSourceIds: ['new-ds-id'],
       }));
     });
 
@@ -200,7 +151,6 @@ describe('WorkspaceConfigManager', () => {
           includePatterns: [], excludePatterns: [],
           syncSchedule: 'manual',
         }],
-        tools: [],
       };
 
       const result = await mgr.importConfig(shareable);
@@ -210,30 +160,9 @@ describe('WorkspaceConfigManager', () => {
       expect(dsMgr.add).not.toHaveBeenCalled();
     });
 
-    it('skips duplicate tools (idempotent)', async () => {
-      const existingTool: ToolConfig = { id: 't-1', name: 'search', description: 'Existing', dataSourceIds: [] };
-      const configManager = makeConfigManager({ tools: [existingTool] });
-      const dsMgr = makeDataSourceManager();
-
-      const mgr = new WorkspaceConfigManager(configManager, dsMgr, makeLogger());
-
-      const shareable: ShareableConfig = {
-        version: 1,
-        dataSources: [],
-        tools: [{ name: 'search', description: 'Imported', dataSources: [] }],
-      };
-
-      const result = await mgr.importConfig(shareable);
-
-      expect(result.toolsAdded).toBe(0);
-      expect(result.toolsSkipped).toBe(1);
-      expect(configManager.addTool).not.toHaveBeenCalled();
-    });
-
     it('is fully idempotent on second run', async () => {
       const ds = makeDs('acme', 'widgets', 'main', 'existing-id');
-      const tool: ToolConfig = { id: 't-1', name: 'search', description: 'Search', dataSourceIds: ['existing-id'] };
-      const configManager = makeConfigManager({ dataSources: [ds], tools: [tool] });
+      const configManager = makeConfigManager({ dataSources: [ds] });
       const dsMgr = makeDataSourceManager({ duplicates: ['acme/widgets@main'] });
 
       const mgr = new WorkspaceConfigManager(configManager, dsMgr, makeLogger());
@@ -246,38 +175,12 @@ describe('WorkspaceConfigManager', () => {
           includePatterns: [], excludePatterns: [],
           syncSchedule: 'manual',
         }],
-        tools: [{ name: 'search', description: 'Search', dataSources: ['acme/widgets@main'] }],
       };
 
       const result = await mgr.importConfig(shareable);
 
       expect(result.dataSourcesAdded).toBe(0);
       expect(result.dataSourcesSkipped).toBe(1);
-      expect(result.toolsAdded).toBe(0);
-      expect(result.toolsSkipped).toBe(1);
-    });
-
-    it('warns on unresolvable data source references in tools', async () => {
-      const configManager = makeConfigManager();
-      const dsMgr = makeDataSourceManager();
-
-      const mgr = new WorkspaceConfigManager(configManager, dsMgr, makeLogger());
-
-      const shareable: ShareableConfig = {
-        version: 1,
-        dataSources: [],
-        tools: [{
-          name: 'search',
-          description: 'Search',
-          dataSources: ['nonexistent/repo@main'],
-        }],
-      };
-
-      const result = await mgr.importConfig(shareable);
-
-      expect(result.toolsAdded).toBe(1);
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toContain('nonexistent/repo@main');
     });
 
     it('continues on data source add failure', async () => {
@@ -295,7 +198,6 @@ describe('WorkspaceConfigManager', () => {
           { repoUrl: 'https://github.com/acme/widgets', owner: 'acme', repo: 'widgets', branch: 'main', includePatterns: [], excludePatterns: [], syncSchedule: 'manual' },
           { repoUrl: 'https://github.com/other/lib', owner: 'other', repo: 'lib', branch: 'main', includePatterns: [], excludePatterns: [], syncSchedule: 'manual' },
         ],
-        tools: [],
       };
 
       const result = await mgr.importConfig(shareable);
@@ -311,7 +213,7 @@ describe('WorkspaceConfigManager', () => {
 
       const mgr = new WorkspaceConfigManager(configManager, dsMgr, makeLogger());
 
-      await mgr.importConfig({ version: 1, dataSources: [], tools: [] });
+      await mgr.importConfig({ version: 1, dataSources: [] });
 
       expect(configManager.flush).toHaveBeenCalled();
     });
@@ -334,7 +236,7 @@ describe('WorkspaceConfigManager', () => {
         expect.stringContaining('"acme"'),
       );
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-        expect.stringContaining('1 data sources'),
+        expect.stringContaining('1 data source'),
       );
     });
 
@@ -372,7 +274,6 @@ describe('WorkspaceConfigManager', () => {
       const configManager = makeConfigManager();
       const mgr = new WorkspaceConfigManager(configManager, makeDataSourceManager(), makeLogger());
 
-      // Override workspace folders to be empty
       (vscode.workspace as any).workspaceFolders = undefined;
 
       await mgr.exportConfig();
@@ -381,7 +282,6 @@ describe('WorkspaceConfigManager', () => {
         'Open a workspace folder first to export Yoink config.',
       );
 
-      // Restore
       (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: '/workspace' } }];
     });
   });
@@ -394,7 +294,6 @@ describe('WorkspaceConfigManager', () => {
       const shareable: ShareableConfig = {
         version: 1,
         dataSources: [{ repoUrl: '', owner: 'a', repo: 'b', branch: 'main', includePatterns: [], excludePatterns: [], syncSchedule: 'manual' }],
-        tools: [],
       };
 
       (fs.existsSync as any).mockReturnValue(true);
@@ -404,7 +303,7 @@ describe('WorkspaceConfigManager', () => {
       await mgr.detectAndPrompt();
 
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-        'Yoink config found in this workspace. Import tools and data sources?',
+        'Yoink config found in this workspace. Import data sources?',
         'Import',
         'Not Now',
       );
@@ -421,12 +320,12 @@ describe('WorkspaceConfigManager', () => {
       expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
     });
 
-    it('does nothing when config has no data sources or tools', async () => {
+    it('does nothing when config has no data sources', async () => {
       const configManager = makeConfigManager();
       const mgr = new WorkspaceConfigManager(configManager, makeDataSourceManager(), makeLogger());
 
       (fs.existsSync as any).mockReturnValue(true);
-      (fs.readFileSync as any).mockReturnValue(JSON.stringify({ version: 1, dataSources: [], tools: [] }));
+      (fs.readFileSync as any).mockReturnValue(JSON.stringify({ version: 1, dataSources: [] }));
 
       await mgr.detectAndPrompt();
 

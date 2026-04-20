@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import {
   YoinkConfig,
   DataSourceConfig,
-  ToolConfig,
   createDefaultConfig,
 } from './configSchema';
 
@@ -135,36 +134,6 @@ export class ConfigManager implements vscode.Disposable {
 
   removeDataSource(id: string): void {
     this.config.dataSources = this.config.dataSources.filter((d) => d.id !== id);
-    this.config.tools = this.config.tools.map((t) => ({
-      ...t,
-      dataSourceIds: t.dataSourceIds.filter((dsId) => dsId !== id),
-    }));
-    this.save();
-  }
-
-  getTool(id: string): ToolConfig | undefined {
-    return this.config.tools.find((t) => t.id === id);
-  }
-
-  getTools(): readonly ToolConfig[] {
-    return this.config.tools;
-  }
-
-  addTool(tool: ToolConfig): void {
-    this.config.tools.push(tool);
-    this.save();
-  }
-
-  updateTool(id: string, updates: Partial<ToolConfig>): void {
-    const tool = this.config.tools.find((t) => t.id === id);
-    if (tool) {
-      Object.assign(tool, updates);
-      this.save();
-    }
-  }
-
-  removeTool(id: string): void {
-    this.config.tools = this.config.tools.filter((t) => t.id !== id);
     this.save();
   }
 
