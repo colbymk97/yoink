@@ -5,7 +5,6 @@ import {
   DataSourceTreeItem,
   DataSourceInfoItem,
   DataSourceFileItem,
-  ToolTreeItem,
   EmbeddingTreeItem,
 } from './sidebarTreeItems';
 import { EmbeddingProviderRegistry } from '../../embedding/registry';
@@ -105,25 +104,3 @@ export class EmbeddingTreeProvider implements vscode.TreeDataProvider<SidebarTre
   }
 }
 
-export class ToolTreeProvider implements vscode.TreeDataProvider<SidebarTreeItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<SidebarTreeItem | undefined>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
-  constructor(private readonly configManager: ConfigManager) {
-    configManager.onDidChange(() => this.refresh());
-  }
-
-  refresh(): void {
-    this._onDidChangeTreeData.fire(undefined);
-  }
-
-  getTreeItem(element: SidebarTreeItem): vscode.TreeItem {
-    return element;
-  }
-
-  getChildren(): SidebarTreeItem[] {
-    return this.configManager.getTools().map(
-      (tool) => new ToolTreeItem(tool, this.configManager),
-    );
-  }
-}

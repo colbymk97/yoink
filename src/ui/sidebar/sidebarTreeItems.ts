@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { DataSourceConfig, ToolConfig } from '../../config/configSchema';
-import { ConfigManager } from '../../config/configManager';
+import { DataSourceConfig } from '../../config/configSchema';
 import { DataSourceStats, FileStats } from '../../storage/chunkStore';
 import { IndexingProgress } from '../../ingestion/progressTracker';
 import { getPricingForModel, formatCost } from '../../embedding/pricing';
@@ -9,7 +8,6 @@ export type SidebarTreeItem =
   | DataSourceTreeItem
   | DataSourceInfoItem
   | DataSourceFileItem
-  | ToolTreeItem
   | EmbeddingTreeItem;
 
 const STATUS_ICONS: Record<string, string> = {
@@ -143,24 +141,3 @@ export class EmbeddingTreeItem extends vscode.TreeItem {
   }
 }
 
-export class ToolTreeItem extends vscode.TreeItem {
-  constructor(
-    public readonly tool: ToolConfig,
-    private readonly configManager: ConfigManager,
-  ) {
-    super(tool.name, vscode.TreeItemCollapsibleState.None);
-
-    const sourceCount = tool.dataSourceIds.length;
-    const sourceLabels = tool.dataSourceIds
-      .map((id) => {
-        const ds = configManager.getDataSource(id);
-        return ds ? `${ds.owner}/${ds.repo}` : 'unknown';
-      })
-      .join(', ');
-
-    this.description = `${sourceCount} source${sourceCount !== 1 ? 's' : ''}`;
-    this.tooltip = `${tool.name}\n${tool.description}\nSources: ${sourceLabels}`;
-    this.contextValue = 'tool';
-    this.iconPath = new vscode.ThemeIcon('tools');
-  }
-}

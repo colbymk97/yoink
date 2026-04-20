@@ -4,7 +4,6 @@ import { GET_FILES_TOOL } from './getFileTool';
 import { LIST_WORKFLOWS_TOOL, LIST_ACTIONS_TOOL } from './cicdTool';
 import { FILE_TREE_TOOL } from './fileTreeTool';
 import { Logger } from '../util/logger';
-import { ConfigManager } from '../config/configManager';
 
 export class ToolManager implements vscode.Disposable {
   private readonly registeredTools = new Map<string, vscode.Disposable>();
@@ -12,12 +11,7 @@ export class ToolManager implements vscode.Disposable {
   constructor(
     private readonly toolHandler: ToolHandler,
     private readonly logger: Logger,
-    private readonly configManager: ConfigManager,
   ) {}
-
-  private registrationName(name: string): string {
-    return name;
-  }
 
   registerAll(): void {
     this.registerGlobalSearchTool();
@@ -26,7 +20,6 @@ export class ToolManager implements vscode.Disposable {
     this.registerListWorkflowsTool();
     this.registerListActionsTool();
     this.registerFileTreeTool();
-    this.syncRegistrations();
   }
 
   private registerGlobalSearchTool(): void {
@@ -35,7 +28,7 @@ export class ToolManager implements vscode.Disposable {
     const disposable = vscode.lm.registerTool('yoink-search', {
       invoke: async (options, token) => {
         return this.toolHandler.handleGlobalSearch(
-          options as vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string; tool?: string }>,
+          options as vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string }>,
           token,
         );
       },
@@ -134,24 +127,6 @@ export class ToolManager implements vscode.Disposable {
 
     this.registeredTools.set('__file-tree__', disposable);
     this.logger.info('Registered file-tree tool');
-  }
-
-  private syncRegistrations(): void {
-    const configTools = this.configManager.getTools();
-    const desiredNames = new Set(
-      configTools.map((t) => this.registrationName(t.name)),
-    );
-    const reserved = new Set(['__global__', '__getfiles__', '__list__', '__list-workflows__', '__list-actions__', '__file-tree__']);
-
-    // Unregister tools no longer in config
-    for (const [key, disposable] of this.registeredTools) {
-      if (reserved.has(key)) continue;
-      if (!desiredNames.has(key)) {
-        disposable.dispose();
-        this.registeredTools.delete(key);
-        this.logger.info(`Unregistered tool: ${key}`);
-      }
-    }
   }
 
   dispose(): void {

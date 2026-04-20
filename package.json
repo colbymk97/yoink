@@ -55,10 +55,6 @@
         "title": "Yoink: Set Azure OpenAI API Key"
       },
       {
-        "command": "yoink.editTool",
-        "title": "Yoink: Edit Tool"
-      },
-      {
         "command": "yoink.syncDataSourceFromTree",
         "title": "Sync",
         "icon": "$(sync)"
@@ -67,11 +63,6 @@
         "command": "yoink.removeDataSourceFromTree",
         "title": "Remove",
         "icon": "$(trash)"
-      },
-      {
-        "command": "yoink.editToolFromTree",
-        "title": "Edit",
-        "icon": "$(edit)"
       },
       {
         "command": "yoink.editDataSourceFromTree",
@@ -114,11 +105,6 @@
           "command": "yoink.removeDataSourceFromTree",
           "when": "view == yoink.dataSources && viewItem == dataSource",
           "group": "inline"
-        },
-        {
-          "command": "yoink.editToolFromTree",
-          "when": "view == yoink.tools && viewItem == tool",
-          "group": "inline"
         }
       ]
     },
@@ -140,10 +126,6 @@
         {
           "id": "yoink.dataSources",
           "name": "Data Sources"
-        },
-        {
-          "id": "yoink.tools",
-          "name": "Tools"
         }
       ]
     },
@@ -249,7 +231,7 @@
         ],
         "displayName": "Yoink: Search Repositories",
         "userDescription": "Search your indexed GitHub repositories for relevant code, documentation, or knowledge.",
-        "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Use 'repository' to filter by a specific repo (owner/repo format), or 'tool' to use a configured tool scope. Call yoink-list first to discover available repositories and tools.",
+        "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Use 'repository' to filter by a specific repo (owner/repo format). Call yoink-list first to discover available repositories.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -260,10 +242,6 @@
             "repository": {
               "type": "string",
               "description": "Optional: filter to a specific indexed repository in 'owner/repo' format (e.g. 'vercel/next.js'). Omit to search all indexed repositories."
-            },
-            "tool": {
-              "type": "string",
-              "description": "Optional: use a configured Yoink tool name to search only its assigned repositories. Get available tool names from yoink-list."
             }
           },
           "required": [
@@ -282,8 +260,8 @@
           "repositories"
         ],
         "displayName": "Yoink: List Data Sources",
-        "userDescription": "List all indexed GitHub repositories and configured search tools in Yoink.",
-        "modelDescription": "List all data sources (GitHub repositories) and tools currently indexed and available in Yoink. Call this first to discover what repositories are available before searching. Returns repository names, branches, status, file/chunk counts, and any configured tool scopes.",
+        "userDescription": "List all indexed GitHub repositories in Yoink.",
+        "modelDescription": "List all data sources (GitHub repositories) currently indexed and available in Yoink. Call this first to discover what repositories are available before searching. Returns repository names, branches, status, file/chunk counts.",
         "inputSchema": {
           "type": "object",
           "properties": {}

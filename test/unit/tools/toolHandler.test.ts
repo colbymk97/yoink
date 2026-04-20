@@ -17,7 +17,7 @@ vi.mock('vscode', () => ({
 
 import { ToolHandler } from '../../../src/tools/toolHandler';
 import { EmbeddingProvider } from '../../../src/embedding/embeddingProvider';
-import { DataSourceConfig, ToolConfig } from '../../../src/config/configSchema';
+import { DataSourceConfig } from '../../../src/config/configSchema';
 
 // --- Helpers ---
 
@@ -48,21 +48,13 @@ function makeDs(id: string, status: string = 'ready'): DataSourceConfig {
   };
 }
 
-function makeTool(id: string, name: string, dsIds: string[]): ToolConfig {
-  return { id, name, description: `A test tool for ${name}`, dataSourceIds: dsIds };
-}
-
 function makeHandler(
   dataSources: DataSourceConfig[],
-  tools: ToolConfig[],
   searchResults: any[] = [],
 ) {
   const dsMap = new Map(dataSources.map((ds) => [ds.id, ds]));
-  const toolMap = new Map(tools.map((t) => [t.id, t]));
 
   const configManager = {
-    getTool: (id: string) => toolMap.get(id),
-    getTools: () => tools,
     getDataSources: () => dataSources,
     getDataSource: (id: string) => dsMap.get(id),
   } as any;
@@ -99,7 +91,7 @@ describe('ToolHandler', () => {
     it('searches all ready data sources', async () => {
       const ds1 = makeDs('ds-1', 'ready');
       const ds2 = makeDs('ds-2', 'indexing');
-      const { handler, retriever } = makeHandler([ds1, ds2], []);
+      const { handler, retriever } = makeHandler([ds1, ds2]);
 
       await handler.handleGlobalSearch(
         { input: { query: 'test query' } } as any,
@@ -117,7 +109,7 @@ describe('ToolHandler', () => {
     it('filters by repository parameter', async () => {
       const ds1 = makeDs('ds-1', 'ready');
       const ds2 = makeDs('ds-2', 'ready');
-      const { handler, retriever } = makeHandler([ds1, ds2], []);
+      const { handler, retriever } = makeHandler([ds1, ds2]);
 
       await handler.handleGlobalSearch(
         { input: { query: 'test', repository: 'test/ds-1' } } as any,
@@ -132,74 +124,8 @@ describe('ToolHandler', () => {
       );
     });
 
-    it('scopes search by tool name', async () => {
-      const ds1 = makeDs('ds-1', 'ready');
-      const ds2 = makeDs('ds-2', 'ready');
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']);
-      const { handler, retriever } = makeHandler([ds1, ds2], [tool]);
-
-      await handler.handleGlobalSearch(
-        { input: { query: 'test', tool: 'my-tool' } } as any,
-        dummyToken as any,
-      );
-
-      expect(retriever.search).toHaveBeenCalledWith(
-        'test',
-        ['ds-1'],
-        expect.anything(),
-        10,
-      );
-    });
-
-    it('repository takes precedence over tool', async () => {
-      const ds1 = makeDs('ds-1', 'ready');
-      const ds2 = makeDs('ds-2', 'ready');
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']);
-      const { handler, retriever } = makeHandler([ds1, ds2], [tool]);
-
-      await handler.handleGlobalSearch(
-        { input: { query: 'test', repository: 'test/ds-2', tool: 'my-tool' } } as any,
-        dummyToken as any,
-      );
-
-      expect(retriever.search).toHaveBeenCalledWith(
-        'test',
-        ['ds-2'],
-        expect.anything(),
-        10,
-      );
-    });
-
-    it('returns error for unknown tool name', async () => {
-      const ds1 = makeDs('ds-1', 'ready');
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']);
-      const { handler } = makeHandler([ds1], [tool]);
-
-      const result = await handler.handleGlobalSearch(
-        { input: { query: 'test', tool: 'nonexistent' } } as any,
-        dummyToken as any,
-      );
-
-      expect(result.parts[0].value).toContain('not found');
-      expect(result.parts[0].value).toContain('my-tool');
-    });
-
-    it('returns error when tool has no ready data sources', async () => {
-      const ds1 = makeDs('ds-1', 'indexing');
-      const ds2 = makeDs('ds-2', 'ready'); // a ready source so we pass the early check
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']); // tool only references the non-ready source
-      const { handler } = makeHandler([ds1, ds2], [tool]);
-
-      const result = await handler.handleGlobalSearch(
-        { input: { query: 'test', tool: 'my-tool' } } as any,
-        dummyToken as any,
-      );
-
-      expect(result.parts[0].value).toContain('no ready data sources');
-    });
-
     it('returns error when no repositories indexed', async () => {
-      const { handler } = makeHandler([], []);
+      const { handler } = makeHandler([]);
 
       const result = await handler.handleGlobalSearch(
         { input: { query: 'test' } } as any,
@@ -211,7 +137,7 @@ describe('ToolHandler', () => {
 
     it('returns error message when search fails', async () => {
       const ds1 = makeDs('ds-1');
-      const { handler, retriever } = makeHandler([ds1], []);
+      const { handler, retriever } = makeHandler([ds1]);
       retriever.search.mockRejectedValue(new Error('embedding failed'));
 
       const result = await handler.handleGlobalSearch(
@@ -226,7 +152,7 @@ describe('ToolHandler', () => {
     it('formats retrieval results via contextBuilder', async () => {
       const ds1 = makeDs('ds-1');
       const mockResults = [{ chunk: { id: 'c1' }, distance: 0.1 }];
-      const { handler, contextBuilder } = makeHandler([ds1], [], mockResults);
+      const { handler, contextBuilder } = makeHandler([ds1], mockResults);
       contextBuilder.format.mockReturnValue('**formatted**');
 
       const result = await handler.handleGlobalSearch(
@@ -239,43 +165,10 @@ describe('ToolHandler', () => {
     });
   });
 
-  describe('handle', () => {
-    it('searches scoped to tool data sources', async () => {
-      const ds1 = makeDs('ds-1');
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']);
-      const { handler, retriever } = makeHandler([ds1], [tool]);
-
-      await handler.handle(
-        't-1',
-        { input: { query: 'find me' } } as any,
-        dummyToken as any,
-      );
-
-      expect(retriever.search).toHaveBeenCalledWith(
-        'find me',
-        ['ds-1'],
-        expect.anything(),
-        10,
-      );
-    });
-
-    it('returns error for unknown tool ID', async () => {
-      const { handler } = makeHandler([], []);
-
-      const result = await handler.handle(
-        'nonexistent',
-        { input: { query: 'test' } } as any,
-        dummyToken as any,
-      );
-
-      expect(result.parts[0].value).toContain('not found');
-    });
-  });
-
   describe('handleList', () => {
     it('returns data source info with stats for ready sources', async () => {
       const ds1 = makeDs('ds-1', 'ready');
-      const { handler, chunkStore } = makeHandler([ds1], []);
+      const { handler, chunkStore } = makeHandler([ds1]);
 
       const result = await handler.handleList(dummyToken as any);
 
@@ -288,7 +181,7 @@ describe('ToolHandler', () => {
 
     it('skips stats for non-ready sources', async () => {
       const ds1 = makeDs('ds-1', 'indexing');
-      const { handler, chunkStore } = makeHandler([ds1], []);
+      const { handler, chunkStore } = makeHandler([ds1]);
 
       const result = await handler.handleList(dummyToken as any);
 
@@ -296,24 +189,12 @@ describe('ToolHandler', () => {
       expect(result.parts[0].value).toContain('indexing');
     });
 
-    it('lists tools with resolved data source references', async () => {
-      const ds1 = makeDs('ds-1', 'ready');
-      const tool = makeTool('t-1', 'my-tool', ['ds-1']);
-      const { handler } = makeHandler([ds1], [tool]);
-
-      const result = await handler.handleList(dummyToken as any);
-
-      expect(result.parts[0].value).toContain('my-tool');
-      expect(result.parts[0].value).toContain('test/ds-1@main');
-    });
-
     it('returns no data sources message when empty', async () => {
-      const { handler } = makeHandler([], []);
+      const { handler } = makeHandler([]);
 
       const result = await handler.handleList(dummyToken as any);
 
       expect(result.parts[0].value).toContain('No data sources configured');
-      expect(result.parts[0].value).toContain('No tools configured');
     });
   });
 });

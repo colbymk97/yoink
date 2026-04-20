@@ -2,18 +2,15 @@ import * as vscode from 'vscode';
 import { parseRepoUrl, isRepoUrlResult, GitHubResolver } from '../../sources/github/githubResolver';
 import { RepoBrowser } from '../../sources/github/repoBrowser';
 import { DataSourceManager, AddDataSourceOptions } from '../../sources/dataSourceManager';
-import { DEFAULT_EXCLUDE_PATTERNS, ToolConfig } from '../../config/configSchema';
+import { DEFAULT_EXCLUDE_PATTERNS } from '../../config/configSchema';
 import { REPO_TYPE_PRESETS } from '../../config/repoTypePresets';
-import { ConfigManager } from '../../config/configManager';
 import { EmbeddingProviderRegistry } from '../../embedding/registry';
-import * as crypto from 'crypto';
 
 export class AddRepoWizard {
   constructor(
     private readonly resolver: GitHubResolver,
     private readonly browser: RepoBrowser,
     private readonly dataSourceManager: DataSourceManager,
-    private readonly configManager: ConfigManager,
     private readonly embeddingRegistry: EmbeddingProviderRegistry,
   ) {}
 
@@ -93,29 +90,6 @@ export class AddRepoWizard {
     );
     if (!schedule) return;
 
-    // Step 7: Tool name
-    const defaultToolName = `${metadata.owner}_${metadata.repo}`.replace(/[^a-zA-Z0-9_]/g, '_');
-    const toolName = await vscode.window.showInputBox({
-      prompt: 'Tool name (alphanumeric and underscores only)',
-      value: defaultToolName,
-      validateInput: (v) =>
-        /^[a-zA-Z0-9_]{1,64}$/.test(v) ? null : 'Alphanumeric and underscores only, max 64 chars',
-      ignoreFocusOut: true,
-    });
-    if (!toolName) return;
-
-    // Step 8: Tool description (pre-populated from type template)
-    const defaultDescription = selectedPreset.toolDescriptionTemplate(
-      metadata.owner,
-      metadata.repo,
-    );
-    const toolDescription = await vscode.window.showInputBox({
-      prompt: 'Tool description (helps Copilot decide when to use this tool)',
-      value: defaultDescription,
-      ignoreFocusOut: true,
-    });
-    if (!toolDescription) return;
-
     // Create data source
     const dsOptions: AddDataSourceOptions = {
       repoUrl: `https://github.com/${metadata.owner}/${metadata.repo}`,
@@ -127,16 +101,7 @@ export class AddRepoWizard {
       excludePatterns: [...DEFAULT_EXCLUDE_PATTERNS],
       syncSchedule: schedule.value,
     };
-    const ds = await this.dataSourceManager.add(dsOptions);
-
-    // Create tool
-    const tool: ToolConfig = {
-      id: crypto.randomUUID(),
-      name: toolName,
-      description: toolDescription,
-      dataSourceIds: [ds.id],
-    };
-    this.configManager.addTool(tool);
+    await this.dataSourceManager.add(dsOptions);
 
     vscode.window.showInformationMessage(
       `Added ${metadata.owner}/${metadata.repo}. Indexing started.`,

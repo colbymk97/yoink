@@ -78,7 +78,6 @@ describe('ConfigManager', () => {
     const config = manager.getConfig();
     expect(config.version).toBe(1);
     expect(config.dataSources).toEqual([]);
-    expect(config.tools).toEqual([]);
     manager.dispose();
   });
 
@@ -151,41 +150,6 @@ describe('ConfigManager', () => {
     manager.removeDataSource('ds-1');
     manager.flush();
     expect(manager.getDataSource('ds-1')).toBeUndefined();
-    manager.dispose();
-  });
-
-  it('add/update/remove tool round-trip', () => {
-    const manager = new ConfigManager(makeUri());
-
-    manager.addTool({ id: 't-1', name: 'my-tool', description: 'test', dataSourceIds: ['ds-1'] });
-    manager.flush();
-    expect(manager.getTool('t-1')).toBeDefined();
-
-    manager.updateTool('t-1', { description: 'updated' });
-    manager.flush();
-    expect(manager.getTool('t-1')?.description).toBe('updated');
-
-    manager.removeTool('t-1');
-    manager.flush();
-    expect(manager.getTool('t-1')).toBeUndefined();
-    manager.dispose();
-  });
-
-  it('removeDataSource cleans tool references', () => {
-    const manager = new ConfigManager(makeUri());
-
-    manager.addDataSource({
-      id: 'ds-1', repoUrl: '', owner: 'o', repo: 'r', branch: 'main',
-      includePatterns: [], excludePatterns: [], syncSchedule: 'manual',
-      type: 'general', lastSyncedAt: null, lastSyncCommitSha: null, status: 'ready',
-    });
-    manager.addTool({ id: 't-1', name: 'tool', description: '', dataSourceIds: ['ds-1', 'ds-2'] });
-    manager.flush();
-
-    manager.removeDataSource('ds-1');
-    manager.flush();
-
-    expect(manager.getTool('t-1')?.dataSourceIds).toEqual(['ds-2']);
     manager.dispose();
   });
 
