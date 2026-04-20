@@ -55,7 +55,10 @@
       "Bash(gh run *)",
       "Bash(git commit -m ' *)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(gh release *)",
+      "Bash(gh workflow *)",
+      "Bash(git commit *)"
     ]
   }
 }

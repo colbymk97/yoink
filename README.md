@@ -1,8 +1,15 @@
 # Yoink
 
-Use any GitHub repository as RAG context for Copilot — query codebases, docs, and institutional knowledge without leaving VS Code.
+**Remote context for GitHub Copilot — no MCP server required.**
 
-Yoink indexes GitHub repositories into a local SQLite vector database and exposes them as Copilot Chat tools. Point it at any repo, ask Copilot a question, and it retrieves the most relevant chunks to ground the answer.
+Index any GitHub repository into a local vector database and expose it as a Copilot Chat tool. Point it at a repo, ask Copilot a question, and it retrieves the most relevant code, docs, or workflows to ground the answer — all from inside VS Code.
+
+## Use Cases
+
+- **Org documentation RAG** — index your team's wikis, runbooks, and ADRs so Copilot can answer questions grounded in your actual docs rather than hallucinating
+- **Reusable workflow library** — index a shared GitHub Actions library repo so Copilot can find and adapt existing workflows instead of writing from scratch
+- **GitHub Actions setup automation** — index your CI/CD patterns and let Copilot generate on-brand pipeline configs for new repos
+- **Cross-repo code search** — give Copilot access to a shared component library, SDK, or internal tool without cloning it locally
 
 ## Features
 
@@ -131,19 +138,20 @@ To enable verbose logging, set `yoink.log.level` to `"debug"` in your VS Code se
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `ci.yml` | Push to `main` / `claude/**`, any PR | Lint, test, build + package VSIX |
-| `prerelease.yml` | Tag `v*-*` (e.g. `v0.1.0-alpha.1`) | Builds VSIX, publishes GitHub prerelease |
+| `prerelease.yml` | Manual (`workflow_dispatch`) | Creates tag, builds VSIX, publishes GitHub prerelease |
 | `release.yml` | Tag `v*` without hyphen (e.g. `v0.1.0`) | Builds VSIX, publishes stable GitHub release |
 
 Build logic (checkout → `npm ci` → `npm run build` → `vsce package`) lives in a shared reusable workflow (`_build.yml`) called by all three.
 
 ### Publishing a prerelease
 
+Trigger the **Prerelease** workflow manually from the Actions tab — or via CLI:
+
 ```bash
-git tag v0.0.1-alpha.1
-git push origin v0.0.1-alpha.1
+gh workflow run prerelease.yml --ref main -f version=0.1.0-alpha.1
 ```
 
-The VSIX will be attached to the GitHub release automatically. Download it from the [Releases](https://github.com/colbymk97/yoink/releases) page to test.
+The workflow creates the tag, builds platform-specific VSIXs, and attaches them to a GitHub prerelease automatically.
 
 ### Publishing a stable release
 

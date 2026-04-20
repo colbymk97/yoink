@@ -330,11 +330,16 @@
                     "description": "Optional. Last line to return (1-indexed)."
                   }
                 },
-                "required": ["repository", "filePath"]
+                "required": [
+                  "repository",
+                  "filePath"
+                ]
               }
             }
           },
-          "required": ["files"]
+          "required": [
+            "files"
+          ]
         }
       },
       {
@@ -415,12 +420,16 @@
             },
             "include": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Glob patterns to include (e.g. [\"**/*.ts\"]). Applied to full file paths."
             },
             "exclude": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Glob patterns to exclude. Applied to full file paths."
             },
             "page": {
@@ -432,7 +441,9 @@
               "description": "Lines per page (default 200, max 500)."
             }
           },
-          "required": ["repository"]
+          "required": [
+            "repository"
+          ]
         }
       }
     ]
@@ -467,6 +478,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.99.0",
