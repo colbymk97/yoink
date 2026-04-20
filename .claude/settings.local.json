@@ -49,7 +49,12 @@
       "Bash(curl -s https://api.github.com/repos/WiseLibs/better-sqlite3/releases/latest)",
       "Bash(awk '{print $2}')",
       "Bash(npm ls *)",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(git tag *)",
+      "Bash(xargs grep *)",
+      "Bash(gh run *)",
+      "Bash(git commit -m ' *)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }
