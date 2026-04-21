@@ -1,5 +1,5 @@
-// Copies tree-sitter query files from src/chunking/queries/ into
-// dist/queries/ so they ship with the VSIX. Invoked from `npm run build`.
+// Copies tree-sitter query files and tiktoken WASM into dist/ so they ship
+// with the VSIX. Invoked from `npm run build`.
 
 import { mkdir, readdir, copyFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -18,3 +18,10 @@ for (const name of queries) {
   await copyFile(join(srcDir, name), join(outDir, name));
 }
 console.log(`copy-queries: wrote ${queries.length} .scm files to ${outDir}`);
+
+// tiktoken loads tiktoken_bg.wasm relative to dist/extension.js at runtime
+await copyFile(
+  join(repoRoot, 'node_modules', 'tiktoken', 'tiktoken_bg.wasm'),
+  join(repoRoot, 'dist', 'tiktoken_bg.wasm'),
+);
+console.log('copy-queries: copied tiktoken_bg.wasm to dist/');
