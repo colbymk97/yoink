@@ -1,5 +1,6 @@
-import { encoding_for_model, type Tiktoken, type TiktokenModel } from 'tiktoken';
 import { EmbeddingProvider, estimateTokens } from './embeddingProvider';
+import { encodingForModel } from './tiktokenLoader';
+import type { Tiktoken } from 'tiktoken';
 
 export interface OpenAIProviderOptions {
   apiKey: string;
@@ -143,10 +144,10 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   private getTokenizer(): Tiktoken {
     if (!this.tokenizer) {
       try {
-        this.tokenizer = encoding_for_model(this.model as TiktokenModel);
+        this.tokenizer = encodingForModel(this.model);
       } catch {
         // Model not recognized by tiktoken — use cl100k_base (covers embedding models)
-        this.tokenizer = encoding_for_model('text-embedding-3-small');
+        this.tokenizer = encodingForModel('text-embedding-3-small');
       }
     }
     return this.tokenizer;

@@ -1,5 +1,6 @@
-import { encoding_for_model, type Tiktoken } from 'tiktoken';
 import { EmbeddingProvider, estimateTokens } from './embeddingProvider';
+import { encodingForModel } from './tiktokenLoader';
+import type { Tiktoken } from 'tiktoken';
 
 export interface AzureOpenAIProviderOptions {
   apiKey: string;
@@ -132,7 +133,7 @@ export class AzureOpenAIEmbeddingProvider implements EmbeddingProvider {
   private getTokenizer(): Tiktoken {
     if (!this.tokenizer) {
       // cl100k_base covers all current Azure OpenAI embedding models
-      this.tokenizer = encoding_for_model('text-embedding-3-small');
+      this.tokenizer = encodingForModel('text-embedding-3-small');
     }
     return this.tokenizer;
   }
