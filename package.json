@@ -1,7 +1,7 @@
 {
   "name": "yoink",
   "displayName": "Yoink",
-  "description": "Use any GitHub repository as RAG context for Copilot — query codebases, docs, and institutional knowledge without leaving VS Code.",
+  "description": "Do you want remote repository context for Copilot without MCP? Yoink it! Yarr!",
   "version": "0.0.1",
   "publisher": "yoink",
   "repository": {

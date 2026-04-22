@@ -139,9 +139,15 @@ To enable verbose logging, set `yoink.log.level` to `"debug"` in your VS Code se
 |---|---|---|
 | `ci.yml` | Push to `main` / `claude/**`, any PR | Lint, test, build + package VSIX |
 | `prerelease.yml` | Manual (`workflow_dispatch`) | Creates tag, builds VSIX, publishes GitHub prerelease |
-| `release.yml` | Tag `v*` without hyphen (e.g. `v0.1.0`) | Builds VSIX, publishes stable GitHub release |
+| `release.yml` | Tag `v*` without hyphen (e.g. `v0.1.0`) | Validates tag/version match, builds VSIXs, creates the stable GitHub release, then publishes those same VSIXs to Visual Studio Marketplace |
 
 Build logic (checkout → `npm ci` → `npm run build` → `vsce package`) lives in a shared reusable workflow (`_build.yml`) called by all three.
+
+Stable releases currently publish these platform-specific VSIXs:
+
+- `linux-x64`
+- `darwin-arm64`
+- `win32-x64`
 
 ### Publishing a prerelease
 
@@ -151,18 +157,27 @@ Trigger the **Prerelease** workflow manually from the Actions tab — or via CLI
 gh workflow run prerelease.yml --ref main -f version=0.1.0-alpha.1
 ```
 
-The workflow creates the tag, builds platform-specific VSIXs, and attaches them to a GitHub prerelease automatically.
+The workflow creates the tag, builds platform-specific VSIXs, and attaches them to a GitHub prerelease automatically. Prereleases do not publish to Visual Studio Marketplace.
 
 ### Publishing a stable release
 
 1. Update `version` in `package.json`
 2. Commit and push to `main`
-3. Tag and push:
+3. Create and push the matching stable tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+The `release.yml` workflow will then:
+
+1. Verify that the pushed tag matches `package.json` exactly (`v${version}`)
+2. Build the supported platform VSIXs in CI
+3. Attach those VSIXs to a stable GitHub release
+4. Publish those same VSIX files to Visual Studio Marketplace
+
+Before the first stable publish, create a Visual Studio Marketplace publisher that matches `package.json.publisher`, then store a Marketplace PAT as the `VSCE_PAT` secret in the GitHub Actions `production` environment. The PAT should be created in Azure DevOps with organization access set to `All accessible organizations` and scope `Marketplace (Manage)`.
 
 ## License
 

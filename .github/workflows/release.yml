@@ -7,7 +7,33 @@ on:
     tags: ['v*']
 
 jobs:
+  validate:
+    if: "!contains(github.ref_name, '-')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate tag matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v$VERSION"
+
+          if [ "${GITHUB_REF_NAME}" != "$EXPECTED_TAG" ]; then
+            echo "Release tag must match package.json version." >&2
+            echo "Expected tag: $EXPECTED_TAG" >&2
+            echo "Actual tag:   ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
   build:
+    needs: validate
     if: "!contains(github.ref_name, '-')"
     uses: ./.github/workflows/_build.yml
     with:
@@ -32,3 +58,47 @@ jobs:
           prerelease: false
           files: '*.vsix'
           generate_release_notes: true
+
+  publish-marketplace:
+    needs: [build, release]
+    if: "!contains(github.ref_name, '-')"
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - name: Validate Marketplace token is configured
+        shell: bash
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "Missing VSCE_PAT secret in the production environment." >&2
+            exit 1
+          fi
+
+      - name: Publish VSIX artifacts to Visual Studio Marketplace
+        shell: bash
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          files=( *.vsix )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No VSIX artifacts found to publish." >&2
+            exit 1
+          fi
+
+          printf 'Publishing %s\n' "${files[@]}"
+          for file in "${files[@]}"; do
+            npx @vscode/vsce publish --packagePath "$file"
+          done
