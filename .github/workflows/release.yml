@@ -10,6 +10,8 @@ jobs:
   build:
     if: "!contains(github.ref_name, '-')"
     uses: ./.github/workflows/_build.yml
+    with:
+      include_runtime_dependencies: true
 
   release:
     needs: build

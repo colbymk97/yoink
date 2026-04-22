@@ -3,6 +3,10 @@ name: _build
 on:
   workflow_call:
     inputs:
+      include_runtime_dependencies:
+        required: false
+        type: boolean
+        default: true
       vsix_version:
         required: false
         type: string
@@ -43,7 +47,15 @@ jobs:
           NAME="$(node -p "require('./package.json').name")"
           echo "file=${NAME}-${VERSION}-${{ matrix.target }}.vsix" >> "$GITHUB_OUTPUT"
 
-      - run: npx vsce package --target ${{ matrix.target }} --out "${{ steps.vsix.outputs.file }}"
+      - name: Package VSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=(--target "${{ matrix.target }}" --out "${{ steps.vsix.outputs.file }}")
+          if [ "${{ inputs.include_runtime_dependencies }}" != "true" ]; then
+            ARGS=(--no-dependencies "${ARGS[@]}")
+          fi
+          npx vsce package "${ARGS[@]}"
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
