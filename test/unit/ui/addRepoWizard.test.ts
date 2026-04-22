@@ -25,7 +25,7 @@ describe('AddRepoWizard', () => {
   let resolver: any;
   let browser: any;
   let dataSourceManager: any;
-  let embeddingRegistry: any;
+  let embeddingManager: any;
 
   const metadata = {
     owner: 'acme',
@@ -49,10 +49,8 @@ describe('AddRepoWizard', () => {
       add: vi.fn().mockResolvedValue({ id: 'ds-1' }),
       isDuplicate: vi.fn().mockReturnValue(false),
     };
-    embeddingRegistry = {
-      hasApiKey: vi.fn().mockResolvedValue(true),
-      setApiKey: vi.fn(),
-      getProvider: vi.fn(),
+    embeddingManager = {
+      ensureConfigured: vi.fn().mockResolvedValue(true),
     };
   });
 
@@ -79,7 +77,7 @@ describe('AddRepoWizard', () => {
 
   it('completes the full wizard flow', async () => {
     setupFullFlow();
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
 
     await wizard.run();
 
@@ -115,7 +113,7 @@ describe('AddRepoWizard', () => {
       .mockResolvedValueOnce('main')
       .mockImplementationOnce(async (opts: any) => opts.value); // accept pre-filled include value
 
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(dataSourceManager.add).toHaveBeenCalledWith(
@@ -132,7 +130,7 @@ describe('AddRepoWizard', () => {
     });
     (vscode.window.showInputBox as any).mockResolvedValueOnce(undefined);
 
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(dataSourceManager.add).not.toHaveBeenCalled();
@@ -148,7 +146,7 @@ describe('AddRepoWizard', () => {
     // Branch cancelled
     (vscode.window.showInputBox as any).mockResolvedValueOnce(undefined);
 
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(dataSourceManager.add).not.toHaveBeenCalled();
@@ -177,7 +175,7 @@ describe('AddRepoWizard', () => {
       .mockResolvedValueOnce('main')
       .mockResolvedValueOnce('');
 
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(browser.listAllUserRepos).toHaveBeenCalled();
@@ -195,7 +193,7 @@ describe('AddRepoWizard', () => {
       .mockResolvedValueOnce('main')
       .mockResolvedValueOnce(''); // empty include
 
-    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingRegistry);
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(dataSourceManager.add).toHaveBeenCalledWith(

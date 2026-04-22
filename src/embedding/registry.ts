@@ -4,13 +4,35 @@ import { OpenAIEmbeddingProvider } from './openaiProvider';
 import { AzureOpenAIEmbeddingProvider } from './azureOpenAIProvider';
 import { LocalEmbeddingProvider } from './localProvider';
 import { SETTING_KEYS } from '../config/settingsSchema';
+import { createHash } from 'node:crypto';
+
+export type EmbeddingProviderType = 'openai' | 'azure-openai' | 'local';
+
+export interface EmbeddingConfigurationState {
+  provider: EmbeddingProviderType;
+  providerLabel: string;
+  identifier: string;
+  identifierLabel: string;
+  dimensions: number;
+  requiresApiKey: boolean;
+  hasApiKey: boolean;
+  missingFields: string[];
+  isConfigured: boolean;
+  fingerprint?: string;
+}
+
+const OPENAI_MODEL_DIMENSIONS: Record<string, number> = {
+  'text-embedding-3-small': 1536,
+  'text-embedding-3-large': 3072,
+  'text-embedding-ada-002': 1536,
+};
 
 export class EmbeddingProviderRegistry {
   constructor(private readonly secretStorage: vscode.SecretStorage) {}
 
   async getProvider(): Promise<EmbeddingProvider> {
     const config = vscode.workspace.getConfiguration();
-    const providerType = config.get<string>(SETTING_KEYS.EMBEDDING_PROVIDER, 'openai');
+    const providerType = this.getProviderType(config);
 
     switch (providerType) {
       case 'openai':
@@ -22,6 +44,135 @@ export class EmbeddingProviderRegistry {
       default:
         throw new Error(`Unknown embedding provider: ${providerType}`);
     }
+  }
+
+  getProviderType(
+    config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration(),
+  ): EmbeddingProviderType {
+    return config.get<EmbeddingProviderType>(SETTING_KEYS.EMBEDDING_PROVIDER, 'openai');
+  }
+
+  async getConfigurationState(
+    config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration(),
+  ): Promise<EmbeddingConfigurationState> {
+    const provider = this.getProviderType(config);
+
+    if (provider === 'azure-openai') {
+      const endpoint = config.get<string>(SETTING_KEYS.AZURE_ENDPOINT, '').trim();
+      const deploymentName = config.get<string>(SETTING_KEYS.AZURE_DEPLOYMENT_NAME, '').trim();
+      const apiVersion = config.get<string>(SETTING_KEYS.AZURE_API_VERSION, '2024-02-01').trim();
+      const dimensions = config.get<number>(SETTING_KEYS.AZURE_DIMENSIONS, 1536);
+      const hasApiKey = await this.hasAzureApiKey();
+      const missingFields = [
+        ...(endpoint ? [] : ['endpoint']),
+        ...(deploymentName ? [] : ['deployment name']),
+        ...(apiVersion ? [] : ['API version']),
+        ...(Number.isFinite(dimensions) && dimensions > 0 ? [] : ['dimensions']),
+        ...(hasApiKey ? [] : ['API key']),
+      ];
+
+      return {
+        provider,
+        providerLabel: 'Azure OpenAI',
+        identifier: deploymentName || 'Azure OpenAI',
+        identifierLabel: 'Deployment',
+        dimensions,
+        requiresApiKey: true,
+        hasApiKey,
+        missingFields,
+        isConfigured: missingFields.length === 0,
+        fingerprint: endpoint && deploymentName && apiVersion && dimensions > 0
+          ? this.fingerprintFor({
+            provider,
+            endpoint,
+            deploymentName,
+            apiVersion,
+            dimensions,
+          })
+          : undefined,
+      };
+    }
+
+    if (provider === 'local') {
+      const baseUrl = config.get<string>(SETTING_KEYS.LOCAL_BASE_URL, 'http://localhost:11434/v1').trim();
+      const model = config.get<string>(SETTING_KEYS.LOCAL_MODEL, '').trim();
+      const dimensions = config.get<number>(SETTING_KEYS.LOCAL_DIMENSIONS, 768);
+      const hasApiKey = await this.hasLocalApiKey();
+      const missingFields = [
+        ...(baseUrl ? [] : ['base URL']),
+        ...(model ? [] : ['model']),
+        ...(Number.isFinite(dimensions) && dimensions > 0 ? [] : ['dimensions']),
+      ];
+
+      return {
+        provider,
+        providerLabel: 'Local',
+        identifier: model || 'Local model',
+        identifierLabel: 'Model',
+        dimensions,
+        requiresApiKey: false,
+        hasApiKey,
+        missingFields,
+        isConfigured: missingFields.length === 0,
+        fingerprint: baseUrl && model && dimensions > 0
+          ? this.fingerprintFor({
+            provider,
+            baseUrl,
+            model,
+            dimensions,
+          })
+          : undefined,
+      };
+    }
+
+    const model = config.get<string>(SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small').trim();
+    const baseUrl = config.get<string>(SETTING_KEYS.OPENAI_BASE_URL, 'https://api.openai.com/v1').trim();
+    const dimensions = getOpenAIModelDimensions(model);
+    const hasApiKey = await this.hasApiKey();
+    const missingFields = [
+      ...(model ? [] : ['model']),
+      ...(baseUrl ? [] : ['base URL']),
+      ...(hasApiKey ? [] : ['API key']),
+    ];
+
+    return {
+      provider,
+      providerLabel: 'OpenAI',
+      identifier: model || 'OpenAI',
+      identifierLabel: 'Model',
+      dimensions,
+      requiresApiKey: true,
+      hasApiKey,
+      missingFields,
+      isConfigured: missingFields.length === 0,
+      fingerprint: model && baseUrl
+        ? this.fingerprintFor({
+          provider,
+          model,
+          baseUrl,
+          dimensions,
+        })
+        : undefined,
+    };
+  }
+
+  getManagedSettingKeys(): string[] {
+    return [
+      SETTING_KEYS.EMBEDDING_PROVIDER,
+      SETTING_KEYS.OPENAI_MODEL,
+      SETTING_KEYS.OPENAI_BASE_URL,
+      SETTING_KEYS.AZURE_ENDPOINT,
+      SETTING_KEYS.AZURE_DEPLOYMENT_NAME,
+      SETTING_KEYS.AZURE_API_VERSION,
+      SETTING_KEYS.AZURE_DIMENSIONS,
+      SETTING_KEYS.LOCAL_BASE_URL,
+      SETTING_KEYS.LOCAL_MODEL,
+      SETTING_KEYS.LOCAL_DIMENSIONS,
+    ];
+  }
+
+  onSecretsChanged(listener: () => void): vscode.Disposable {
+    return this.secretStorage.onDidChange(() => listener());
   }
 
   // ── OpenAI ────────────────────────────────────────────────────────────────
@@ -145,4 +296,27 @@ export class EmbeddingProviderRegistry {
       apiKey: apiKey || undefined,
     });
   }
+
+  async hasLocalApiKey(): Promise<boolean> {
+    const stored = await this.secretStorage.get('yoink.local.apiKey');
+    return Boolean(stored ?? process.env.LOCAL_EMBEDDING_API_KEY);
+  }
+
+  async setLocalApiKey(key: string): Promise<void> {
+    await this.secretStorage.store('yoink.local.apiKey', key);
+  }
+
+  async clearLocalApiKey(): Promise<void> {
+    await this.secretStorage.delete('yoink.local.apiKey');
+  }
+
+  private fingerprintFor(payload: Record<string, string | number>): string {
+    return createHash('sha256')
+      .update(JSON.stringify(payload))
+      .digest('hex');
+  }
+}
+
+export function getOpenAIModelDimensions(model: string): number {
+  return OPENAI_MODEL_DIMENSIONS[model] ?? 1536;
 }

@@ -15,16 +15,28 @@ function toVecBlob(embedding: number[]): Buffer {
 }
 
 export class EmbeddingStore {
-  private readonly insertStmt: Database.Statement;
-  private readonly deleteStmt: Database.Statement;
-  private readonly searchAllStmt: Database.Statement;
+  private insertStmt!: Database.Statement;
+  private deleteStmt!: Database.Statement;
+  private clearStmt!: Database.Statement;
+  private countStmt!: Database.Statement;
+  private searchAllStmt!: Database.Statement;
 
   constructor(private readonly db: Database.Database) {
-    this.insertStmt = db.prepare(
+    this.prepareStatements();
+  }
+
+  refreshAfterSchemaChange(): void {
+    this.prepareStatements();
+  }
+
+  private prepareStatements(): void {
+    this.insertStmt = this.db.prepare(
       'INSERT INTO embeddings (chunk_id, embedding) VALUES (?, ?)',
     );
-    this.deleteStmt = db.prepare('DELETE FROM embeddings WHERE chunk_id = ?');
-    this.searchAllStmt = db.prepare(`
+    this.deleteStmt = this.db.prepare('DELETE FROM embeddings WHERE chunk_id = ?');
+    this.clearStmt = this.db.prepare('DELETE FROM embeddings');
+    this.countStmt = this.db.prepare('SELECT COUNT(*) as count FROM embeddings');
+    this.searchAllStmt = this.db.prepare(`
       SELECT chunk_id, distance
       FROM embeddings
       WHERE embedding MATCH ?
@@ -54,6 +66,15 @@ export class EmbeddingStore {
       }
     });
     tx(chunkIds);
+  }
+
+  clearAll(): void {
+    this.clearStmt.run();
+  }
+
+  countAll(): number {
+    const row = this.countStmt.get() as { count: number };
+    return row.count;
   }
 
   /**

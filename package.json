@@ -47,6 +47,14 @@
         "title": "Yoink: Sync All Data Sources"
       },
       {
+        "command": "yoink.manageEmbeddings",
+        "title": "Yoink: Manage Embeddings"
+      },
+      {
+        "command": "yoink.rebuildEmbeddings",
+        "title": "Yoink: Rebuild Embeddings"
+      },
+      {
         "command": "yoink.setApiKey",
         "title": "Yoink: Set OpenAI API Key"
       },
@@ -88,6 +96,16 @@
           "command": "yoink.addRepository",
           "when": "view == yoink.dataSources",
           "group": "navigation"
+        },
+        {
+          "command": "yoink.manageEmbeddings",
+          "when": "view == yoink.embedding",
+          "group": "navigation"
+        },
+        {
+          "command": "yoink.rebuildEmbeddings",
+          "when": "view == yoink.embedding",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -104,6 +122,26 @@
         {
           "command": "yoink.removeDataSourceFromTree",
           "when": "view == yoink.dataSources && viewItem == dataSource",
+          "group": "inline"
+        },
+        {
+          "command": "yoink.manageEmbeddings",
+          "when": "view == yoink.embedding && viewItem == embeddingReady",
+          "group": "inline"
+        },
+        {
+          "command": "yoink.manageEmbeddings",
+          "when": "view == yoink.embedding && viewItem == embeddingNeedsSetup",
+          "group": "inline"
+        },
+        {
+          "command": "yoink.manageEmbeddings",
+          "when": "view == yoink.embedding && viewItem == embeddingStale",
+          "group": "inline"
+        },
+        {
+          "command": "yoink.rebuildEmbeddings",
+          "when": "view == yoink.embedding && viewItem == embeddingStale",
           "group": "inline"
         }
       ]

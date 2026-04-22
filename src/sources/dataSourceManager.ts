@@ -4,7 +4,7 @@ import { ConfigManager } from '../config/configManager';
 import { DataSourceConfig } from '../config/configSchema';
 import { DataSourceType } from '../config/repoTypePresets';
 import { IngestionPipeline } from '../ingestion/pipeline';
-import { EmbeddingProviderRegistry } from '../embedding/registry';
+import { EmbeddingManager } from '../embedding/manager';
 
 export interface AddDataSourceOptions {
   repoUrl: string;
@@ -23,7 +23,7 @@ export class DataSourceManager implements vscode.Disposable {
   constructor(
     private readonly configManager: ConfigManager,
     private readonly pipeline: IngestionPipeline,
-    private readonly embeddingRegistry: EmbeddingProviderRegistry,
+    private readonly embeddingManager: EmbeddingManager,
   ) {}
 
   /**
@@ -66,18 +66,9 @@ export class DataSourceManager implements vscode.Disposable {
   }
 
   private async assertApiKeyConfigured(): Promise<void> {
-    try {
-      await this.embeddingRegistry.getProvider();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const action = await vscode.window.showErrorMessage(
-        `Yoink: ${message}`,
-        'Set API Key',
-      );
-      if (action === 'Set API Key') {
-        await vscode.commands.executeCommand('yoink.setApiKey');
-      }
-      throw err;
+    const ready = await this.embeddingManager.ensureConfigured();
+    if (!ready) {
+      throw new Error('Embedding provider is not configured.');
     }
   }
 

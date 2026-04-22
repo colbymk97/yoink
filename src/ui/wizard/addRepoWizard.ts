@@ -4,29 +4,20 @@ import { RepoBrowser } from '../../sources/github/repoBrowser';
 import { DataSourceManager, AddDataSourceOptions } from '../../sources/dataSourceManager';
 import { DEFAULT_EXCLUDE_PATTERNS } from '../../config/configSchema';
 import { REPO_TYPE_PRESETS } from '../../config/repoTypePresets';
-import { EmbeddingProviderRegistry } from '../../embedding/registry';
+import { EmbeddingManager } from '../../embedding/manager';
 
 export class AddRepoWizard {
   constructor(
     private readonly resolver: GitHubResolver,
     private readonly browser: RepoBrowser,
     private readonly dataSourceManager: DataSourceManager,
-    private readonly embeddingRegistry: EmbeddingProviderRegistry,
+    private readonly embeddingManager: EmbeddingManager,
   ) {}
 
   async run(): Promise<void> {
-    // Step 0: Ensure API key is configured
-    if (!(await this.embeddingRegistry.hasApiKey())) {
-      const apiKey = await vscode.window.showInputBox({
-        title: 'Yoink: OpenAI API Key Required',
-        prompt: 'Enter your OpenAI API key to enable embeddings',
-        placeHolder: 'sk-...',
-        password: true,
-        ignoreFocusOut: true,
-        validateInput: (v) => v.trim() ? null : 'API key cannot be empty',
-      });
-      if (!apiKey) return;
-      await this.embeddingRegistry.setApiKey(apiKey.trim());
+    // Step 0: Ensure embeddings are configured
+    if (!(await this.embeddingManager.ensureConfigured())) {
+      return;
     }
 
     // Step 1: Get repo URL or search
@@ -85,9 +76,8 @@ export class AddRepoWizard {
       { label: 'On Startup', value: 'onStartup' as const },
       { label: 'Daily', value: 'daily' as const },
     ];
-    const schedule = await vscode.window.showQuickPick(scheduleItems, {
+    const schedule = await vscode.window.showQuickPick<(typeof scheduleItems)[number]>(scheduleItems, {
       placeHolder: 'Sync schedule',
-      activeItems: [scheduleItems[0]],
       ignoreFocusOut: true,
     });
     if (!schedule) return;
@@ -111,7 +101,7 @@ export class AddRepoWizard {
   }
 
   private async getRepoInput(): Promise<{ owner: string; repo: string } | undefined> {
-    const choice = await vscode.window.showQuickPick(
+    const choice = await vscode.window.showQuickPick<{ label: string; value: 'url' | 'browse' }>(
       [
         { label: '$(link) Paste Repository URL', value: 'url' },
         { label: '$(search) Browse My Repositories', value: 'browse' },

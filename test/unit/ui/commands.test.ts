@@ -24,6 +24,7 @@ import { DataSourceConfig } from '../../../src/config/configSchema';
 describe('registerCommands', () => {
   let configManager: any;
   let dataSourceManager: any;
+  let embeddingManager: any;
   let providerRegistry: any;
   let wizardFactory: any;
   let context: any;
@@ -48,8 +49,14 @@ describe('registerCommands', () => {
       sync: vi.fn(),
       syncAll: vi.fn(),
     };
+    embeddingManager = {
+      manageEmbeddings: vi.fn(),
+      rebuildEmbeddings: vi.fn(),
+      refresh: vi.fn(),
+    };
     providerRegistry = {
       setApiKey: vi.fn(),
+      setAzureApiKey: vi.fn(),
     };
     wizardFactory = vi.fn().mockReturnValue({ run: vi.fn() });
     workspaceConfigManager = {
@@ -61,7 +68,16 @@ describe('registerCommands', () => {
     };
     context = { subscriptions: { push: vi.fn() } };
 
-    registerCommands(context, configManager, dataSourceManager, providerRegistry, wizardFactory, workspaceConfigManager, agentInstaller);
+    registerCommands(
+      context,
+      configManager,
+      dataSourceManager,
+      embeddingManager,
+      providerRegistry,
+      wizardFactory,
+      workspaceConfigManager,
+      agentInstaller,
+    );
   });
 
   it('registers all expected commands', () => {
@@ -69,6 +85,8 @@ describe('registerCommands', () => {
     expect(commands.has('yoink.removeRepository')).toBe(true);
     expect(commands.has('yoink.syncDataSource')).toBe(true);
     expect(commands.has('yoink.syncAllDataSources')).toBe(true);
+    expect(commands.has('yoink.manageEmbeddings')).toBe(true);
+    expect(commands.has('yoink.rebuildEmbeddings')).toBe(true);
     expect(commands.has('yoink.setApiKey')).toBe(true);
   });
 
@@ -124,6 +142,18 @@ describe('registerCommands', () => {
     await commands.get('yoink.syncAllDataSources')!();
 
     expect(dataSourceManager.syncAll).toHaveBeenCalled();
+  });
+
+  it('manageEmbeddings delegates to the embedding manager', async () => {
+    await commands.get('yoink.manageEmbeddings')!();
+
+    expect(embeddingManager.manageEmbeddings).toHaveBeenCalled();
+  });
+
+  it('rebuildEmbeddings delegates to the embedding manager', async () => {
+    await commands.get('yoink.rebuildEmbeddings')!();
+
+    expect(embeddingManager.rebuildEmbeddings).toHaveBeenCalled();
   });
 
   it('setApiKey saves the key', async () => {

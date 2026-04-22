@@ -7,10 +7,10 @@ import {
   DataSourceFileItem,
   EmbeddingTreeItem,
 } from './sidebarTreeItems';
-import { EmbeddingProviderRegistry } from '../../embedding/registry';
 import { SETTING_KEYS } from '../../config/settingsSchema';
 import { ChunkStore } from '../../storage/chunkStore';
 import { ProgressTracker } from '../../ingestion/progressTracker';
+import { EmbeddingManager } from '../../embedding/manager';
 
 export class DataSourceTreeProvider
   implements vscode.TreeDataProvider<SidebarTreeItem>
@@ -63,13 +63,12 @@ export class DataSourceTreeProvider
 export class EmbeddingTreeProvider implements vscode.TreeDataProvider<SidebarTreeItem>, vscode.Disposable {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<SidebarTreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  private readonly secretsListener: vscode.Disposable;
+  private readonly managerListener: vscode.Disposable;
 
   constructor(
-    private readonly embeddingRegistry: EmbeddingProviderRegistry,
-    secrets: vscode.SecretStorage,
+    private readonly embeddingManager: EmbeddingManager,
   ) {
-    this.secretsListener = secrets.onDidChange(() => this.refresh());
+    this.managerListener = embeddingManager.onDidChange(() => this.refresh());
   }
 
   refresh(): void {
@@ -81,26 +80,11 @@ export class EmbeddingTreeProvider implements vscode.TreeDataProvider<SidebarTre
   }
 
   async getChildren(): Promise<SidebarTreeItem[]> {
-    const config = vscode.workspace.getConfiguration();
-    const providerType = config.get<string>(SETTING_KEYS.EMBEDDING_PROVIDER, 'openai');
-
-    if (providerType === 'azure-openai') {
-      const deployment = config.get<string>(SETTING_KEYS.AZURE_DEPLOYMENT_NAME, '');
-      const hasKey = await this.embeddingRegistry.hasAzureApiKey();
-      return [new EmbeddingTreeItem(deployment || 'Azure OpenAI', hasKey, 'azure-openai')];
-    } else if (providerType === 'local') {
-      const model = config.get<string>(SETTING_KEYS.LOCAL_MODEL, 'local');
-      return [new EmbeddingTreeItem(model, true, 'local')];
-    } else {
-      const model = config.get<string>(SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small');
-      const hasKey = await this.embeddingRegistry.hasApiKey();
-      return [new EmbeddingTreeItem(model, hasKey, 'openai')];
-    }
+    return [new EmbeddingTreeItem(await this.embeddingManager.getStatus())];
   }
 
   dispose(): void {
-    this.secretsListener.dispose();
+    this.managerListener.dispose();
     this._onDidChangeTreeData.dispose();
   }
 }
-

@@ -5,6 +5,9 @@ import * as fs from 'fs';
 
 const SCHEMA_VERSION = 3;
 const DEFAULT_DIMENSIONS = 1536;
+const META_EMBEDDING_DIMENSIONS = 'embedding_dimensions';
+const META_EMBEDDING_CONFIG_FINGERPRINT = 'embedding_config_fingerprint';
+const META_SCHEMA_VERSION = 'schema_version';
 
 export interface OpenDatabaseOptions {
   /** Directory to store the DB file. If omitted, uses an in-memory DB. */
@@ -56,7 +59,7 @@ function migrate(db: Database.Database, dimensions: number): void {
     );
 
     db.prepare(
-      "INSERT OR REPLACE INTO meta (key, value) VALUES ('embedding_dimensions', ?)",
+      `INSERT OR REPLACE INTO meta (key, value) VALUES ('${META_EMBEDDING_DIMENSIONS}', ?)`,
     ).run(dimensions.toString());
   }
 
@@ -128,9 +131,7 @@ function migrate(db: Database.Database, dimensions: number): void {
 
 function getSchemaVersion(db: Database.Database): number {
   try {
-    const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
-      | { value: string }
-      | undefined;
+    const row = getMetaValue(db, META_SCHEMA_VERSION);
     return row ? parseInt(row.value, 10) : 0;
   } catch {
     return 0;
@@ -139,15 +140,24 @@ function getSchemaVersion(db: Database.Database): number {
 
 function setSchemaVersion(db: Database.Database, version: number): void {
   db.prepare(
-    "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
+    `INSERT OR REPLACE INTO meta (key, value) VALUES ('${META_SCHEMA_VERSION}', ?)`,
   ).run(version.toString());
 }
 
 export function getEmbeddingDimensions(db: Database.Database): number {
-  const row = db.prepare(
-    "SELECT value FROM meta WHERE key = 'embedding_dimensions'",
-  ).get() as { value: string } | undefined;
+  const row = getMetaValue(db, META_EMBEDDING_DIMENSIONS);
   return row ? parseInt(row.value, 10) : DEFAULT_DIMENSIONS;
+}
+
+export function getEmbeddingConfigFingerprint(db: Database.Database): string | undefined {
+  return getMetaValue(db, META_EMBEDDING_CONFIG_FINGERPRINT)?.value;
+}
+
+export function setEmbeddingConfigFingerprint(
+  db: Database.Database,
+  fingerprint: string,
+): void {
+  setMetaValue(db, META_EMBEDDING_CONFIG_FINGERPRINT, fingerprint);
 }
 
 /**
@@ -162,7 +172,26 @@ export function recreateEmbeddingsTable(db: Database.Database, dimensions: numbe
       embedding FLOAT[${dimensions}]
     )`,
   );
+  setMetaValue(db, META_EMBEDDING_DIMENSIONS, dimensions.toString());
+}
+
+export function resetEmbeddingsTable(db: Database.Database, dimensions: number): void {
+  if (getEmbeddingDimensions(db) === dimensions) {
+    db.exec('DELETE FROM embeddings');
+    return;
+  }
+
+  recreateEmbeddingsTable(db, dimensions);
+}
+
+function getMetaValue(db: Database.Database, key: string): { value: string } | undefined {
+  return db.prepare(
+    'SELECT value FROM meta WHERE key = ?',
+  ).get(key) as { value: string } | undefined;
+}
+
+function setMetaValue(db: Database.Database, key: string, value: string): void {
   db.prepare(
-    "INSERT OR REPLACE INTO meta (key, value) VALUES ('embedding_dimensions', ?)",
-  ).run(dimensions.toString());
+    'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+  ).run(key, value);
 }

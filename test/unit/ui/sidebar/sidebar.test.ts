@@ -38,8 +38,9 @@ import {
   DataSourceTreeItem,
   DataSourceInfoItem,
   DataSourceFileItem,
+  EmbeddingTreeItem,
 } from '../../../../src/ui/sidebar/sidebarTreeItems';
-import { DataSourceTreeProvider } from '../../../../src/ui/sidebar/sidebarProvider';
+import { DataSourceTreeProvider, EmbeddingTreeProvider } from '../../../../src/ui/sidebar/sidebarProvider';
 import { DataSourceConfig } from '../../../../src/config/configSchema';
 
 function makeDs(overrides: Partial<DataSourceConfig> = {}): DataSourceConfig {
@@ -258,3 +259,85 @@ describe('DataSourceTreeProvider', () => {
   });
 });
 
+describe('EmbeddingTreeItem', () => {
+  it('shows configured state', () => {
+    const item = new EmbeddingTreeItem({
+      provider: 'openai',
+      providerLabel: 'OpenAI',
+      identifier: 'text-embedding-3-small',
+      identifierLabel: 'Model',
+      dimensions: 1536,
+      requiresApiKey: true,
+      hasApiKey: true,
+      missingFields: [],
+      isConfigured: true,
+      fingerprint: 'fp-openai',
+      isRebuilding: false,
+      isStale: false,
+      statusLabel: 'Configured',
+      actionCommand: 'yoink.manageEmbeddings',
+      tooltip: 'configured',
+    });
+
+    expect(item.label).toBe('OpenAI: text-embedding-3-small');
+    expect(item.description).toContain('Configured');
+    expect(item.contextValue).toBe('embeddingReady');
+    expect(item.command?.command).toBe('yoink.manageEmbeddings');
+  });
+
+  it('shows stale state as rebuildable', () => {
+    const item = new EmbeddingTreeItem({
+      provider: 'azure-openai',
+      providerLabel: 'Azure OpenAI',
+      identifier: 'embed-prod',
+      identifierLabel: 'Deployment',
+      dimensions: 3072,
+      requiresApiKey: true,
+      hasApiKey: true,
+      missingFields: [],
+      isConfigured: true,
+      fingerprint: 'fp-azure',
+      isRebuilding: false,
+      isStale: true,
+      statusLabel: 'Rebuild required',
+      actionCommand: 'yoink.rebuildEmbeddings',
+      tooltip: 'rebuild required',
+    });
+
+    expect(item.description).toContain('Rebuild required');
+    expect(item.contextValue).toBe('embeddingStale');
+    expect(item.command?.command).toBe('yoink.rebuildEmbeddings');
+  });
+});
+
+describe('EmbeddingTreeProvider', () => {
+  it('returns the embedding status item', async () => {
+    const embeddingManager = {
+      getStatus: vi.fn().mockResolvedValue({
+        provider: 'local',
+        providerLabel: 'Local',
+        identifier: 'nomic-embed-text',
+        identifierLabel: 'Model',
+        dimensions: 768,
+        requiresApiKey: false,
+        hasApiKey: false,
+        missingFields: [],
+        isConfigured: true,
+        fingerprint: 'fp-local',
+        isRebuilding: false,
+        isStale: false,
+        statusLabel: 'Configured',
+        actionCommand: 'yoink.manageEmbeddings',
+        tooltip: 'configured',
+      }),
+      onDidChange: (listener: () => void) => ({ dispose: vi.fn() }),
+    } as any;
+
+    const provider = new EmbeddingTreeProvider(embeddingManager);
+    const children = await provider.getChildren();
+
+    expect(children).toHaveLength(1);
+    expect(children[0]).toBeInstanceOf(EmbeddingTreeItem);
+    expect(children[0].label).toBe('Local: nomic-embed-text');
+  });
+});

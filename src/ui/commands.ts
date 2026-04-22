@@ -6,11 +6,13 @@ import { ConfigManager } from '../config/configManager';
 import { WorkspaceConfigManager } from '../config/workspaceConfig';
 import { DataSourceTreeItem } from './sidebar/sidebarTreeItems';
 import { AgentInstaller } from '../agents/agentInstaller';
+import { EmbeddingManager } from '../embedding/manager';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
   configManager: ConfigManager,
   dataSourceManager: DataSourceManager,
+  embeddingManager: EmbeddingManager,
   providerRegistry: EmbeddingProviderRegistry,
   wizardFactory: () => AddRepoWizard,
   workspaceConfigManager: WorkspaceConfigManager,
@@ -20,6 +22,14 @@ export function registerCommands(
     vscode.commands.registerCommand('yoink.addRepository', async () => {
       const wizard = wizardFactory();
       await wizard.run();
+    }),
+
+    vscode.commands.registerCommand('yoink.manageEmbeddings', async () => {
+      await embeddingManager.manageEmbeddings();
+    }),
+
+    vscode.commands.registerCommand('yoink.rebuildEmbeddings', async () => {
+      await embeddingManager.rebuildEmbeddings();
     }),
 
     vscode.commands.registerCommand('yoink.removeRepository', async () => {
@@ -76,6 +86,7 @@ export function registerCommands(
       });
       if (key) {
         await providerRegistry.setApiKey(key);
+        embeddingManager.refresh();
         vscode.window.showInformationMessage('OpenAI API key saved.');
       }
     }),
@@ -88,6 +99,7 @@ export function registerCommands(
       });
       if (key) {
         await providerRegistry.setAzureApiKey(key);
+        embeddingManager.refresh();
         vscode.window.showInformationMessage('Azure OpenAI API key saved.');
       }
     }),
@@ -131,11 +143,9 @@ export function registerCommands(
         { label: 'On Startup', description: 'Sync when VS Code starts', value: 'onStartup' as const },
         { label: 'Daily', description: 'Sync once per day', value: 'daily' as const },
       ];
-      const currentIdx = scheduleItems.findIndex((s) => s.value === ds.syncSchedule);
-      const schedulePick = await vscode.window.showQuickPick(scheduleItems, {
+      const schedulePick = await vscode.window.showQuickPick<(typeof scheduleItems)[number]>(scheduleItems, {
         title: `Edit ${repoLabel} (2/3)`,
         placeHolder: 'Sync schedule',
-        activeItems: currentIdx >= 0 ? [scheduleItems[currentIdx]] : [],
         ignoreFocusOut: true,
       });
       if (!schedulePick) return;

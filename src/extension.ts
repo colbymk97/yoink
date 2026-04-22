@@ -25,6 +25,7 @@ import { WorkspaceConfigManager } from './config/workspaceConfig';
 import { DeltaSync } from './sources/sync/deltaSync';
 import { Logger } from './util/logger';
 import { AgentInstaller } from './agents/agentInstaller';
+import { EmbeddingManager } from './embedding/manager';
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = new Logger();
@@ -86,7 +87,16 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   // Data source management
-  const dataSourceManager = new DataSourceManager(configManager, pipeline, providerRegistry);
+  const dataSourceManagerRef: { current?: DataSourceManager } = {};
+  const embeddingManager = new EmbeddingManager(
+    providerRegistry,
+    db,
+    embeddingStore,
+    () => configManager.getDataSources(),
+    () => dataSourceManagerRef.current!.syncAll(),
+  );
+  const dataSourceManager = new DataSourceManager(configManager, pipeline, embeddingManager);
+  dataSourceManagerRef.current = dataSourceManager;
 
   // Retrieval
   const retriever = new Retriever(chunkStore, embeddingStore);
@@ -106,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Sidebar
   const dataSourceTreeProvider = new DataSourceTreeProvider(configManager, chunkStore, progressTracker);
-  const embeddingTreeProvider = new EmbeddingTreeProvider(providerRegistry, context.secrets);
+  const embeddingTreeProvider = new EmbeddingTreeProvider(embeddingManager);
   vscode.window.registerTreeDataProvider('yoink.dataSources', dataSourceTreeProvider);
   vscode.window.registerTreeDataProvider('yoink.embedding', embeddingTreeProvider);
 
@@ -125,8 +135,9 @@ export function activate(context: vscode.ExtensionContext): void {
     context,
     configManager,
     dataSourceManager,
+    embeddingManager,
     providerRegistry,
-    () => new AddRepoWizard(resolver, browser, dataSourceManager, providerRegistry),
+    () => new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager),
     workspaceConfigManager,
     agentInstaller,
   );
@@ -143,12 +154,15 @@ export function activate(context: vscode.ExtensionContext): void {
     toolManager,
     scheduler,
     embeddingTreeProvider,
+    embeddingManager,
     progressTracker,
     logger,
   );
 
   // Detect workspace config and prompt import
   workspaceConfigManager.detectAndPrompt();
+
+  void embeddingManager.initialize();
 
   // Silently install Copilot agent files on first activation
   const primaryFolder = vscode.workspace.workspaceFolders?.[0];

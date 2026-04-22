@@ -30,7 +30,7 @@ describe('DataSourceManager', () => {
   let dataSources: DataSourceConfig[];
   let configManager: any;
   let pipeline: any;
-  let embeddingRegistry: any;
+  let embeddingManager: any;
   let manager: DataSourceManager;
 
   beforeEach(() => {
@@ -49,11 +49,10 @@ describe('DataSourceManager', () => {
       enqueue: vi.fn(),
       removeDataSource: vi.fn(),
     };
-    embeddingRegistry = {
-      getProvider: vi.fn().mockResolvedValue({}),
-      hasApiKey: vi.fn().mockResolvedValue(true),
+    embeddingManager = {
+      ensureConfigured: vi.fn().mockResolvedValue(true),
     };
-    manager = new DataSourceManager(configManager, pipeline, embeddingRegistry);
+    manager = new DataSourceManager(configManager, pipeline, embeddingManager);
   });
 
   it('add creates a data source and enqueues it', async () => {
