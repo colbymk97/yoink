@@ -2,6 +2,22 @@ name: _build
 
 on:
   workflow_call:
+    inputs:
+      electron_version:
+        required: false
+        type: string
+        default: '39.8.3'
+      include_runtime_dependencies:
+        required: false
+        type: boolean
+        default: true
+      rebuild_native_modules:
+        required: false
+        type: boolean
+        default: false
+      vsix_version:
+        required: false
+        type: string
 
 jobs:
   build:
@@ -10,10 +26,13 @@ jobs:
       matrix:
         include:
           - target: linux-x64
+            arch: x64
             os: ubuntu-latest
           - target: darwin-arm64
+            arch: arm64
             os: macos-latest
           - target: win32-x64
+            arch: x64
             os: windows-latest
     runs-on: ${{ matrix.os }}
 
@@ -26,12 +45,49 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Ensure sqlite-vec package for target
+        shell: bash
+        run: node scripts/ensure-sqlite-vec-target.mjs --target "${{ matrix.target }}"
+
+      - name: Rebuild native modules for VS Code Electron
+        if: ${{ inputs.rebuild_native_modules }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx electron-rebuild \
+            --module-dir . \
+            --version "${{ inputs.electron_version }}" \
+            --arch "${{ matrix.arch }}" \
+            --force \
+            --only better-sqlite3
+
       - run: npm run build
-      - run: npx vsce package --no-dependencies --target ${{ matrix.target }}
+
+      - name: Resolve VSIX filename
+        id: vsix
+        shell: bash
+        run: |
+          VERSION="${{ inputs.vsix_version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+          NAME="$(node -p "require('./package.json').name")"
+          echo "file=${NAME}-${VERSION}-${{ matrix.target }}.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Package VSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=(--target "${{ matrix.target }}" --out "${{ steps.vsix.outputs.file }}")
+          if [ "${{ inputs.include_runtime_dependencies }}" != "true" ]; then
+            ARGS=(--no-dependencies "${ARGS[@]}")
+          fi
+          npx vsce package "${ARGS[@]}"
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.target }}
-          path: '*.vsix'
+          path: ${{ steps.vsix.outputs.file }}
           retention-days: 7

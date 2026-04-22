@@ -1,0 +1,122 @@
+name: Managed Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'How to advance the prerelease version'
+        required: true
+        default: continue
+        type: choice
+        options:
+          - continue
+          - patch
+          - minor
+          - major
+
+jobs:
+  plan:
+    name: Plan Next Prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      current_next_version: ${{ steps.compute.outputs.current_next_version }}
+      release_version: ${{ steps.compute.outputs.release_version }}
+      next_version: ${{ steps.compute.outputs.next_version }}
+    steps:
+      - name: Compute versions
+        id: compute
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          set -euo pipefail
+
+          CURRENT_NEXT="$(gh variable get NEXT_PRERELEASE_VERSION --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)"
+          if [ -z "$CURRENT_NEXT" ]; then
+            CURRENT_NEXT="0.0.1-alpha.9"
+          fi
+
+          if [[ ! "$CURRENT_NEXT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-alpha\.([0-9]+)$ ]]; then
+            echo "NEXT_PRERELEASE_VERSION must look like x.y.z-alpha.n, got: $CURRENT_NEXT" >&2
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          ALPHA="${BASH_REMATCH[4]}"
+
+          case "$RELEASE_TYPE" in
+            continue)
+              RELEASE_VERSION="$CURRENT_NEXT"
+              NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.$((ALPHA + 1))"
+              ;;
+            patch)
+              PATCH="$((PATCH + 1))"
+              RELEASE_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.1"
+              NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.2"
+              ;;
+            minor)
+              MINOR="$((MINOR + 1))"
+              PATCH=0
+              RELEASE_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.1"
+              NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.2"
+              ;;
+            major)
+              MAJOR="$((MAJOR + 1))"
+              MINOR=0
+              PATCH=0
+              RELEASE_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.1"
+              NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}-alpha.2"
+              ;;
+            *)
+              echo "Unsupported release_type: $RELEASE_TYPE" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "current_next_version=$CURRENT_NEXT" >> "$GITHUB_OUTPUT"
+          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Managed prerelease plan"
+            echo
+            echo "- Current next prerelease: \`$CURRENT_NEXT\`"
+            echo "- Requested release type: \`$RELEASE_TYPE\`"
+            echo "- Version to publish now: \`$RELEASE_VERSION\`"
+            echo "- Version stored for next time: \`$NEXT_VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  prerelease:
+    name: Publish Prerelease
+    needs: plan
+    uses: ./.github/workflows/prerelease.yml
+    with:
+      version: ${{ needs.plan.outputs.release_version }}
+    secrets: inherit
+
+  persist_state:
+    name: Persist Next Prerelease
+    needs: [plan, prerelease]
+    runs-on: ubuntu-latest
+    if: success()
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Update repository variable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ needs.plan.outputs.next_version }}
+        run: |
+          set -euo pipefail
+          gh variable set NEXT_PRERELEASE_VERSION --body "$NEXT_VERSION" --repo "$GITHUB_REPOSITORY"
+          {
+            echo "## Stored next prerelease version"
+            echo
+            echo "- NEXT_PRERELEASE_VERSION: \`$NEXT_VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
