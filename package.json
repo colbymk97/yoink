@@ -433,7 +433,7 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "dev:install": "bash scripts/dev-install.sh",
     "rebuild:native": "electron-rebuild -v 39.8.3 --arch arm64 --only better-sqlite3,sqlite-vec"
   },

@@ -40,7 +40,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
 fi
 
 echo "==> Packaging VSIX..."
-npx vsce package --no-dependencies --out yoink-dev.vsix
+npx vsce package --out yoink-dev.vsix
 
 echo "==> Installing extension..."
 "$CODE" --install-extension yoink-dev.vsix --force
