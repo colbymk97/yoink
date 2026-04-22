@@ -34,13 +34,13 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     EV=$(python3 -c "import json; print(json.load(open('/Applications/Visual Studio Code.app/Contents/Resources/app/package.json'))['dependencies']['electron'])" 2>/dev/null || echo "39.8.3")
     npx --yes @electron/rebuild -v "$EV" --arch arm64
 
-    # Ensure the arm64 sqlite-vec optional dependency is present
-    npm install --no-save sqlite-vec-darwin-arm64 2>/dev/null || true
+    # Ensure sqlite-vec matches the VS Code host architecture.
+    node scripts/ensure-sqlite-vec-target.mjs --target darwin-arm64
   fi
 fi
 
 echo "==> Packaging VSIX..."
-npx vsce package --no-dependencies --out yoink-dev.vsix
+npx vsce package --out yoink-dev.vsix
 
 echo "==> Installing extension..."
 "$CODE" --install-extension yoink-dev.vsix --force

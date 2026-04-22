@@ -19,8 +19,8 @@ jobs:
     name: Plan Next Prerelease
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      contents: read
+      actions: write
+      contents: write
     outputs:
       current_next_version: ${{ steps.compute.outputs.current_next_version }}
       release_version: ${{ steps.compute.outputs.release_version }}

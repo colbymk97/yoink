@@ -1,0 +1,3 @@
+display_name: Yoink Isolated VS Code Loop
+short_description: Launch Yoink in a clean VS Code profile, then collect the run's log paths and a quick failure summary.
+default_prompt: Reproduce Yoink in a clean installed-extension flow by building or fetching a VSIX, installing it into an isolated VS Code profile, launching VS Code, and summarizing the resulting logs for iteration.

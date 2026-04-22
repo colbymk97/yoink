@@ -10,6 +10,10 @@ jobs:
   build:
     if: "!contains(github.ref_name, '-')"
     uses: ./.github/workflows/_build.yml
+    with:
+      electron_version: '39.8.3'
+      include_runtime_dependencies: true
+      rebuild_native_modules: true
 
   release:
     needs: build

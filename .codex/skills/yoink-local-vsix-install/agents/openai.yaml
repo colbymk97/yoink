@@ -1,0 +1,3 @@
+display_name: Yoink Local VSIX Install
+short_description: Build or fetch a Yoink VSIX and install it into local VS Code outside the extension host.
+default_prompt: Build or fetch a Yoink VSIX, install it into local VS Code outside the extension host, and summarize the resulting install state and any packaging pain points.

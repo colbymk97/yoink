@@ -1,4 +1,6 @@
 .github/**
+.codex/**
+.claude/**
 .vscode-test/**
 src/**
 test/**
@@ -23,3 +25,4 @@ esbuild.mjs
 yoink.json.schema.json
 ARCHITECTURE.md
 CLAUDE.md
+AGENTS.md

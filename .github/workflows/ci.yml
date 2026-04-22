@@ -35,3 +35,6 @@ jobs:
     name: Build
     needs: [lint, test]
     uses: ./.github/workflows/_build.yml
+    with:
+      include_runtime_dependencies: false
+      rebuild_native_modules: false
