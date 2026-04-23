@@ -11,6 +11,7 @@ import { openDatabase } from './storage/database';
 import { ChunkStore } from './storage/chunkStore';
 import { EmbeddingStore } from './storage/embeddingStore';
 import { SyncStore } from './storage/syncStore';
+import { IndexingRunStore } from './storage/indexingRunStore';
 import { IngestionPipeline } from './ingestion/pipeline';
 import { ParserRegistry } from './ingestion/parserRegistry';
 import { ProgressTracker } from './ingestion/progressTracker';
@@ -51,6 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const chunkStore = new ChunkStore(db);
   const embeddingStore = new EmbeddingStore(db);
   const syncStore = new SyncStore(db);
+  const indexingRunStore = new IndexingRunStore(db);
 
   // Delta sync
   const deltaSync = new DeltaSync(getToken);
@@ -73,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
     chunkStore,
     embeddingStore,
     syncStore,
+    indexingRunStore,
     logger,
     deltaSync,
     parserRegistry,

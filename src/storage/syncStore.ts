@@ -7,9 +7,22 @@ export interface SyncRecord {
   completedAt: string | null;
   status: 'running' | 'completed' | 'failed';
   filesProcessed: number;
+  filesTotal: number;
   chunksCreated: number;
+  tokensIndexed: number;
   errorMessage: string | null;
   commitSha: string | null;
+  fetchStrategy: string | null;
+  lastFilePath: string | null;
+}
+
+export interface SyncResultDetails {
+  filesProcessed: number;
+  filesTotal: number;
+  chunksCreated: number;
+  tokensIndexed: number;
+  fetchStrategy?: string;
+  lastFilePath?: string | null;
 }
 
 export class SyncStore {
@@ -25,7 +38,15 @@ export class SyncStore {
     `);
     this.updateStmt = db.prepare(`
       UPDATE sync_history
-      SET completed_at = ?, status = ?, files_processed = ?, chunks_created = ?, error_message = ?
+      SET completed_at = ?,
+          status = ?,
+          files_processed = ?,
+          files_total = ?,
+          chunks_created = ?,
+          tokens_indexed = ?,
+          fetch_strategy = ?,
+          last_file_path = ?,
+          error_message = ?
       WHERE id = ?
     `);
     this.getLatestStmt = db.prepare(`
@@ -47,25 +68,32 @@ export class SyncStore {
 
   completeSync(
     id: string,
-    filesProcessed: number,
-    chunksCreated: number,
+    details: SyncResultDetails,
   ): void {
     this.updateStmt.run(
       new Date().toISOString(),
       'completed',
-      filesProcessed,
-      chunksCreated,
+      details.filesProcessed,
+      details.filesTotal,
+      details.chunksCreated,
+      details.tokensIndexed,
+      details.fetchStrategy ?? null,
+      details.lastFilePath ?? null,
       null,
       id,
     );
   }
 
-  failSync(id: string, errorMessage: string): void {
+  failSync(id: string, errorMessage: string, details?: Partial<SyncResultDetails>): void {
     this.updateStmt.run(
       new Date().toISOString(),
       'failed',
-      0,
-      0,
+      details?.filesProcessed ?? 0,
+      details?.filesTotal ?? 0,
+      details?.chunksCreated ?? 0,
+      details?.tokensIndexed ?? 0,
+      details?.fetchStrategy ?? null,
+      details?.lastFilePath ?? null,
       errorMessage,
       id,
     );
@@ -90,8 +118,12 @@ function mapRow(row: Record<string, unknown>): SyncRecord {
     completedAt: row.completed_at as string | null,
     status: row.status as SyncRecord['status'],
     filesProcessed: row.files_processed as number,
+    filesTotal: row.files_total as number,
     chunksCreated: row.chunks_created as number,
+    tokensIndexed: row.tokens_indexed as number,
     errorMessage: row.error_message as string | null,
     commitSha: row.commit_sha as string | null,
+    fetchStrategy: row.fetch_strategy as string | null,
+    lastFilePath: row.last_file_path as string | null,
   };
 }

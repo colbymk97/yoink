@@ -32,6 +32,11 @@ export interface RateLimitInfo {
   resetAt: Date;
 }
 
+export interface BlobStreamOptions {
+  concurrency?: number;
+  onFileError?: (entry: FileTreeEntry, error: Error) => Promise<void> | void;
+}
+
 export class GitHubFetcher {
   private rateLimitRemaining: number = Infinity;
   private rateLimitResetAt: Date = new Date(0);
@@ -96,12 +101,23 @@ export class GitHubFetcher {
     sha: string,
     entries: FileTreeEntry[],
   ): Promise<FetchedFile[]> {
-    const eligible = entries.filter((entry) => {
-      if (entry.size > MAX_FILE_SIZE) return false;
-      return !BINARY_EXTENSIONS.has(extname(entry.path));
+    const results: FetchedFile[] = [];
+    await this.streamTarballFiles(owner, repo, sha, entries, async (file) => {
+      results.push(file);
     });
-    if (eligible.length === 0) return [];
-    const allowedPaths = new Set(eligible.map((e) => e.path));
+    return results;
+  }
+
+  async streamTarballFiles(
+    owner: string,
+    repo: string,
+    sha: string,
+    entries: FileTreeEntry[],
+    onFile: (file: FetchedFile) => Promise<void> | void,
+  ): Promise<void> {
+    const eligible = filterEligibleEntries(entries);
+    if (eligible.length === 0) return;
+    const allowedPaths = new Map(eligible.map((entry) => [entry.path, entry]));
 
     await this.waitForRateLimit();
     const token = await this.getToken();
@@ -118,40 +134,35 @@ export class GitHubFetcher {
       throw new Error('GitHub Tarball API returned an empty body');
     }
 
-    const results: FetchedFile[] = [];
     const extract = tarExtract();
 
     extract.on('entry', (header, stream, next) => {
-      // Tarball entries are prefixed with `<owner>-<repo>-<shortsha>/`. Strip it.
       const firstSlash = header.name.indexOf('/');
       const relPath = firstSlash === -1 ? '' : header.name.slice(firstSlash + 1);
+      const entry = relPath ? allowedPaths.get(relPath) : undefined;
 
-      if (header.type !== 'file' || !relPath || !allowedPaths.has(relPath)) {
+      if (header.type !== 'file' || !entry) {
         stream.resume();
         stream.on('end', next);
         stream.on('error', next);
         return;
       }
 
-      const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        results.push({
-          path: relPath,
-          content: buf.toString('utf8'),
-          sha: '',
-          size: buf.length,
-        });
-        next();
-      });
-      stream.on('error', next);
+      readStreamToBuffer(stream)
+        .then(async (buf) => {
+          await onFile({
+            path: relPath,
+            content: buf.toString('utf8'),
+            sha: entry.sha,
+            size: buf.length,
+          });
+          next();
+        })
+        .catch((err) => next(err as Error));
     });
 
     const nodeStream = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
     await streamPipeline(nodeStream, createGunzip(), extract);
-
-    return results;
   }
 
   async fetchFiles(
@@ -160,41 +171,49 @@ export class GitHubFetcher {
     entries: FileTreeEntry[],
     concurrency: number = 5,
   ): Promise<FetchedFile[]> {
-    // Pre-filter: skip binary extensions and oversized files
-    const eligible = entries.filter((entry) => {
-      if (entry.size > MAX_FILE_SIZE) return false;
-      const ext = extname(entry.path);
-      return !BINARY_EXTENSIONS.has(ext);
-    });
-
     const results: FetchedFile[] = [];
+    await this.streamBlobFiles(owner, repo, entries, async (file) => {
+      results.push(file);
+    }, { concurrency });
+    return results;
+  }
+
+  async streamBlobFiles(
+    owner: string,
+    repo: string,
+    entries: FileTreeEntry[],
+    onFile: (file: FetchedFile) => Promise<void> | void,
+    options: BlobStreamOptions = {},
+  ): Promise<void> {
+    const eligible = filterEligibleEntries(entries);
     const queue = [...eligible];
+    const concurrency = options.concurrency ?? 5;
 
     const worker = async (): Promise<void> => {
       while (queue.length > 0) {
-        // Check rate limit before each request
         await this.waitForRateLimit();
-
         const entry = queue.shift()!;
         try {
           const content = await this.getBlob(owner, repo, entry.sha);
-          results.push({
+          await onFile({
             path: entry.path,
             content,
             sha: entry.sha,
             size: entry.size,
           });
-        } catch {
-          // Skip files that fail to fetch (permissions, encoding issues)
-          // The caller handles missing files gracefully
+        } catch (err) {
+          if (options.onFileError) {
+            await options.onFileError(
+              entry,
+              err instanceof Error ? err : new Error(String(err)),
+            );
+          }
         }
       }
     };
 
     const workerCount = Math.min(concurrency, queue.length);
-    const workers = Array.from({ length: workerCount }, () => worker());
-    await Promise.all(workers);
-    return results;
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
   async getFileContents(owner: string, repo: string, path: string, branch: string): Promise<string> {
@@ -272,6 +291,21 @@ export class GitHubFetcher {
       );
     }
   }
+}
+
+export function filterEligibleEntries(entries: FileTreeEntry[]): FileTreeEntry[] {
+  return entries.filter((entry) => {
+    if (entry.size > MAX_FILE_SIZE) return false;
+    return !BINARY_EXTENSIONS.has(extname(entry.path));
+  });
+}
+
+async function readStreamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 function enc(s: string): string {

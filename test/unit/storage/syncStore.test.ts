@@ -34,23 +34,45 @@ describe('SyncStore', () => {
 
   it('completes a sync record', () => {
     syncStore.startSync('sync-1', 'ds1', 'abc123');
-    syncStore.completeSync('sync-1', 42, 150);
+    syncStore.completeSync('sync-1', {
+      filesProcessed: 42,
+      filesTotal: 50,
+      chunksCreated: 150,
+      tokensIndexed: 1200,
+      fetchStrategy: 'tarball',
+      lastFilePath: 'docs/readme.md',
+    });
 
     const record = syncStore.getLatest('ds1');
     expect(record!.status).toBe('completed');
     expect(record!.filesProcessed).toBe(42);
+    expect(record!.filesTotal).toBe(50);
     expect(record!.chunksCreated).toBe(150);
+    expect(record!.tokensIndexed).toBe(1200);
+    expect(record!.fetchStrategy).toBe('tarball');
+    expect(record!.lastFilePath).toBe('docs/readme.md');
     expect(record!.completedAt).not.toBeNull();
     expect(record!.errorMessage).toBeNull();
   });
 
   it('fails a sync record', () => {
     syncStore.startSync('sync-1', 'ds1', 'abc123');
-    syncStore.failSync('sync-1', 'Rate limit exceeded');
+    syncStore.failSync('sync-1', 'Rate limit exceeded', {
+      filesProcessed: 10,
+      filesTotal: 50,
+      chunksCreated: 30,
+      tokensIndexed: 300,
+      fetchStrategy: 'tarball+blob-fallback',
+      lastFilePath: 'content/guides/foo.md',
+    });
 
     const record = syncStore.getLatest('ds1');
     expect(record!.status).toBe('failed');
     expect(record!.errorMessage).toBe('Rate limit exceeded');
+    expect(record!.filesProcessed).toBe(10);
+    expect(record!.filesTotal).toBe(50);
+    expect(record!.fetchStrategy).toBe('tarball+blob-fallback');
+    expect(record!.lastFilePath).toBe('content/guides/foo.md');
     expect(record!.completedAt).not.toBeNull();
   });
 
@@ -60,7 +82,12 @@ describe('SyncStore', () => {
 
   it('getLatest returns the most recent sync', () => {
     syncStore.startSync('sync-1', 'ds1', 'aaa');
-    syncStore.completeSync('sync-1', 10, 50);
+    syncStore.completeSync('sync-1', {
+      filesProcessed: 10,
+      filesTotal: 10,
+      chunksCreated: 50,
+      tokensIndexed: 500,
+    });
 
     // Small delay to ensure different timestamps
     syncStore.startSync('sync-2', 'ds1', 'bbb');
@@ -72,9 +99,19 @@ describe('SyncStore', () => {
 
   it('getByDataSource returns all sync records', () => {
     syncStore.startSync('sync-1', 'ds1', 'aaa');
-    syncStore.completeSync('sync-1', 10, 50);
+    syncStore.completeSync('sync-1', {
+      filesProcessed: 10,
+      filesTotal: 10,
+      chunksCreated: 50,
+      tokensIndexed: 500,
+    });
     syncStore.startSync('sync-2', 'ds1', 'bbb');
-    syncStore.completeSync('sync-2', 12, 55);
+    syncStore.completeSync('sync-2', {
+      filesProcessed: 12,
+      filesTotal: 12,
+      chunksCreated: 55,
+      tokensIndexed: 550,
+    });
 
     const records = syncStore.getByDataSource('ds1');
     expect(records).toHaveLength(2);
@@ -92,7 +129,12 @@ describe('SyncStore', () => {
 
   it('records persist independently of data_sources table', () => {
     syncStore.startSync('sync-1', 'ds1', 'abc');
-    syncStore.completeSync('sync-1', 5, 20);
+    syncStore.completeSync('sync-1', {
+      filesProcessed: 5,
+      filesTotal: 5,
+      chunksCreated: 20,
+      tokensIndexed: 200,
+    });
 
     const record = syncStore.getLatest('ds1');
     expect(record).toBeDefined();

@@ -12,12 +12,17 @@ export class ProgressTracker implements vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<string>();
   readonly onDidChange = this._onDidChange.event;
 
-  start(dataSourceId: string, totalFiles: number): void {
+  start(
+    dataSourceId: string,
+    totalFiles: number,
+    processedFiles: number = 0,
+    totalTokens: number = 0,
+  ): void {
     this.state.set(dataSourceId, {
       dataSourceId,
       totalFiles,
-      processedFiles: 0,
-      totalTokens: 0,
+      processedFiles,
+      totalTokens,
     });
     this._onDidChange.fire(dataSourceId);
   }

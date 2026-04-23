@@ -99,6 +99,16 @@ describe('DataSourceTreeItem', () => {
     expect(item.collapsibleState).toBe(0); // None
   });
 
+  it('is collapsible when partially indexed during indexing', () => {
+    const item = new DataSourceTreeItem(
+      makeDs({ status: 'indexing' }),
+      undefined,
+      { fileCount: 2, chunkCount: 4, totalTokens: 120 },
+    );
+    expect(item.collapsibleState).toBe(1); // Collapsed
+    expect(item.description).toContain('partial');
+  });
+
   it('is not collapsible when status is error', () => {
     const item = new DataSourceTreeItem(makeDs({ status: 'error' }));
     expect(item.collapsibleState).toBe(0); // None
@@ -241,6 +251,30 @@ describe('DataSourceTreeProvider', () => {
     const children = provider.getChildren(dsItem);
 
     expect(children).toHaveLength(0);
+  });
+
+  it('returns info and file items for partial data sources with indexed chunks', () => {
+    const configManager = {
+      getDataSources: () => [],
+      onDidChange: () => ({ dispose: vi.fn() }),
+    } as any;
+
+    const chunkStore = makeChunkStore(
+      { fileCount: 1, chunkCount: 2, totalTokens: 50 },
+      [{ filePath: 'docs/readme.md', chunkCount: 2, tokenCount: 50 }],
+    );
+
+    const provider = new DataSourceTreeProvider(configManager, chunkStore, makeProgressTracker());
+    const dsItem = new DataSourceTreeItem(
+      makeDs({ status: 'error', errorMessage: 'transport failed' }),
+      undefined,
+      { fileCount: 1, chunkCount: 2, totalTokens: 50 },
+    );
+    const children = provider.getChildren(dsItem);
+
+    expect(children).toHaveLength(2);
+    expect(children[0]).toBeInstanceOf(DataSourceInfoItem);
+    expect(children[1]).toBeInstanceOf(DataSourceFileItem);
   });
 
   it('fires onDidChangeTreeData on config change', () => {
