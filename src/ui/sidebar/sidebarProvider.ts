@@ -38,13 +38,20 @@ export class DataSourceTreeProvider
   getChildren(element?: SidebarTreeItem): SidebarTreeItem[] {
     if (!element) {
       return this.configManager.getDataSources().map(
-        (ds) => new DataSourceTreeItem(ds, this.progressTracker.get(ds.id)),
+        (ds) => new DataSourceTreeItem(
+          ds,
+          this.progressTracker.get(ds.id),
+          this.chunkStore.getDataSourceStats(ds.id),
+        ),
       );
     }
 
-    if (element instanceof DataSourceTreeItem && element.dataSource.status === 'ready') {
+    if (element instanceof DataSourceTreeItem) {
       const dsId = element.dataSource.id;
       const stats = this.chunkStore.getDataSourceStats(dsId);
+      if (stats.fileCount === 0 && element.dataSource.status !== 'ready') {
+        return [];
+      }
       const fileStats = this.chunkStore.getFileStats(dsId);
       const model = vscode.workspace.getConfiguration().get<string>(
         SETTING_KEYS.OPENAI_MODEL, 'text-embedding-3-small',

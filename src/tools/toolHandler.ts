@@ -45,8 +45,11 @@ export class ToolHandler {
     } else {
       for (const ds of dataSources) {
         let line = `- **${ds.owner}/${ds.repo}@${ds.branch}** (${ds.status})`;
-        if (ds.status === 'ready') {
+        if (this.isSearchableSource(ds)) {
           const stats = this.chunkStore.getDataSourceStats(ds.id);
+          if (ds.status !== 'ready') {
+            line += ' [partial]';
+          }
           line += ` — ${stats.fileCount} files, ${stats.chunkCount} chunks, ${stats.totalTokens.toLocaleString()} tokens`;
         }
         lines.push(line);
@@ -62,14 +65,12 @@ export class ToolHandler {
     options: vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string }>,
     _token: vscode.CancellationToken,
   ): Promise<vscode.LanguageModelToolResult> {
-    const readySources = this.configManager
-      .getDataSources()
-      .filter((ds) => ds.status === 'ready');
+    const readySources = this.getSearchableSources();
 
     if (readySources.length === 0) {
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(
-          'No repositories are indexed yet. Add a repository via the Yoink sidebar and wait for indexing to complete.',
+          'No repositories are indexed yet. Add a repository via the Yoink sidebar and wait for indexing to start.',
         ),
       ]);
     }
@@ -84,7 +85,7 @@ export class ToolHandler {
           ds.repo.toLowerCase() === repoFilter,
       );
       if (matched.length === 0) {
-        const available = readySources.map((ds) => `${ds.owner}/${ds.repo}`).join(', ');
+        const available = readySources.map((ds) => this.describeSource(ds)).join(', ');
         return new vscode.LanguageModelToolResult([
           new vscode.LanguageModelTextPart(
             `Repository "${options.input.repository}" is not indexed. Indexed repositories: ${available}`,
@@ -98,7 +99,7 @@ export class ToolHandler {
 
     const searchedRepos = readySources
       .filter((ds) => targetIds.includes(ds.id))
-      .map((ds) => `${ds.owner}/${ds.repo}`)
+      .map((ds) => this.describeSource(ds))
       .join(', ');
 
     return this.executeSearch(options.input.query, targetIds, searchedRepos);
@@ -249,7 +250,7 @@ export class ToolHandler {
 
       const contentMap = buildContentMap(this.chunkStore.getByDataSource(ds.id));
 
-      lines.push(`## ${ds.owner}/${ds.repo}`);
+      lines.push(`## ${this.describeSource(ds)}`);
       for (const { filePath } of workflowFiles) {
         const content = contentMap.get(filePath) ?? '';
         const name = extractYamlScalar(content, 'name');
@@ -293,7 +294,7 @@ export class ToolHandler {
 
       const contentMap = buildContentMap(this.chunkStore.getByDataSource(ds.id));
 
-      lines.push(`## ${ds.owner}/${ds.repo}`);
+      lines.push(`## ${this.describeSource(ds)}`);
       for (const { filePath } of actionFiles) {
         const content = contentMap.get(filePath) ?? '';
         const name = extractYamlScalar(content, 'name');
@@ -344,7 +345,8 @@ export class ToolHandler {
       const fileStats = this.chunkStore.getFileStats(ds.id);
       const result = buildFileTree(fileStats, { rootPath, maxDepth, include, exclude, page, pageSize });
 
-      const header = `${ds.owner}/${ds.repo}@${ds.branch} — ${fileStats.length} file${fileStats.length !== 1 ? 's' : ''}, ${fileStats.reduce((s, f) => s + f.tokenCount, 0).toLocaleString()} tokens`;
+      const partialLabel = ds.status === 'ready' ? '' : ' [partial]';
+      const header = `${ds.owner}/${ds.repo}@${ds.branch}${partialLabel} — ${fileStats.length} file${fileStats.length !== 1 ? 's' : ''}, ${fileStats.reduce((s, f) => s + f.tokenCount, 0).toLocaleString()} tokens`;
       const pagination = result.totalPages > 1
         ? `\nPage ${result.page}/${result.totalPages} — pass page: ${result.page + 1} to see more`
         : '';
@@ -358,12 +360,10 @@ export class ToolHandler {
   }
 
   private getReadySources(repositoryFilter?: string): import('../config/configSchema').DataSourceConfig[] | string {
-    const readySources = this.configManager
-      .getDataSources()
-      .filter((ds) => ds.status === 'ready');
+    const readySources = this.getSearchableSources();
 
     if (readySources.length === 0) {
-      return 'No repositories are indexed yet. Add a repository via the Yoink sidebar and wait for indexing to complete.';
+      return 'No repositories are indexed yet. Add a repository via the Yoink sidebar and wait for indexing to start.';
     }
 
     if (!repositoryFilter) return readySources;
@@ -376,11 +376,27 @@ export class ToolHandler {
     );
 
     if (matched.length === 0) {
-      const available = readySources.map((ds) => `${ds.owner}/${ds.repo}`).join(', ');
+      const available = readySources.map((ds) => this.describeSource(ds)).join(', ');
       return `Repository "${repositoryFilter}" is not indexed. Indexed repositories: ${available}`;
     }
 
     return matched;
+  }
+
+  private getSearchableSources(): import('../config/configSchema').DataSourceConfig[] {
+    return this.configManager
+      .getDataSources()
+      .filter((ds) => this.isSearchableSource(ds));
+  }
+
+  private isSearchableSource(ds: import('../config/configSchema').DataSourceConfig): boolean {
+    return ds.status === 'ready' || this.chunkStore.countByDataSource(ds.id) > 0;
+  }
+
+  private describeSource(ds: import('../config/configSchema').DataSourceConfig): string {
+    return ds.status === 'ready'
+      ? `${ds.owner}/${ds.repo}`
+      : `${ds.owner}/${ds.repo} (partial)`;
   }
 
   private async executeSearch(

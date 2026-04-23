@@ -291,6 +291,73 @@ describe('GitHubFetcher', () => {
       expect(files).toEqual([]);
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
+
+    it('streams tarball entries through a callback', async () => {
+      const tarball = await buildTarGz([
+        { name: 'repo-abc1234/src/index.ts', content: 'export const a = 1;\n' },
+        { name: 'repo-abc1234/src/util.ts', content: 'export const b = 2;\n' },
+      ]);
+      globalThis.fetch = vi.fn().mockResolvedValue(mockTarResponse(tarball));
+
+      const fetcher = makeFetcher();
+      const seen: string[] = [];
+      await fetcher.streamTarballFiles(
+        'owner',
+        'repo',
+        'abc1234',
+        [
+          { path: 'src/index.ts', sha: 'aaa', size: 20, type: 'blob' },
+          { path: 'src/util.ts', sha: 'bbb', size: 20, type: 'blob' },
+        ],
+        async (file) => {
+          seen.push(file.path);
+        },
+      );
+
+      expect(seen.sort()).toEqual(['src/index.ts', 'src/util.ts']);
+    });
+  });
+
+  describe('streamBlobFiles', () => {
+    it('reports per-file blob fetch failures without aborting the stream', async () => {
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+        const sha = url.split('/blobs/')[1];
+        if (sha === 'bad') {
+          throw new Error('socket hang up');
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-RateLimit-Remaining': '100', 'X-RateLimit-Reset': '9999999999' }),
+          text: async () => `content-of-${sha}`,
+        };
+      });
+
+      const fetcher = makeFetcher();
+      const files: string[] = [];
+      const errors: string[] = [];
+
+      await fetcher.streamBlobFiles(
+        'owner',
+        'repo',
+        [
+          { path: 'good.ts', sha: 'good', size: 10, type: 'blob' },
+          { path: 'bad.ts', sha: 'bad', size: 10, type: 'blob' },
+        ],
+        async (file) => {
+          files.push(file.path);
+        },
+        {
+          concurrency: 1,
+          onFileError: async (entry, err) => {
+            errors.push(`${entry.path}:${err.message}`);
+          },
+        },
+      );
+
+      expect(files).toEqual(['good.ts']);
+      expect(errors).toEqual(['bad.ts:socket hang up']);
+    });
   });
 
   describe('rate limit tracking', () => {

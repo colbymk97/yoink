@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const DEFAULT_DIMENSIONS = 1536;
 const META_EMBEDDING_DIMENSIONS = 'embedding_dimensions';
 const META_EMBEDDING_CONFIG_FINGERPRINT = 'embedding_config_fingerprint';
@@ -124,6 +124,47 @@ function migrate(db: Database.Database, dimensions: number): void {
       );
       INSERT INTO chunks_fts (chunk_id, data_source_id, file_path, content)
       SELECT id, data_source_id, file_path, content FROM chunks;
+    `);
+    setSchemaVersion(db, SCHEMA_VERSION);
+  }
+
+  if (currentVersion < 4) {
+    db.exec(`
+      ALTER TABLE sync_history ADD COLUMN tokens_indexed INTEGER DEFAULT 0;
+      ALTER TABLE sync_history ADD COLUMN fetch_strategy TEXT;
+      ALTER TABLE sync_history ADD COLUMN last_file_path TEXT;
+      ALTER TABLE sync_history ADD COLUMN files_total INTEGER DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS indexing_runs (
+        id             TEXT PRIMARY KEY,
+        data_source_id TEXT NOT NULL,
+        run_key        TEXT NOT NULL,
+        commit_sha     TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        total_files    INTEGER NOT NULL DEFAULT 0,
+        fetch_strategy TEXT,
+        started_at     TEXT NOT NULL,
+        completed_at   TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_indexing_runs_ds ON indexing_runs(data_source_id);
+      CREATE INDEX IF NOT EXISTS idx_indexing_runs_key ON indexing_runs(data_source_id, run_key);
+
+      CREATE TABLE IF NOT EXISTS indexing_run_files (
+        run_id         TEXT NOT NULL,
+        file_path      TEXT NOT NULL,
+        file_sha       TEXT NOT NULL,
+        file_size      INTEGER NOT NULL DEFAULT 0,
+        status         TEXT NOT NULL DEFAULT 'pending',
+        chunk_count    INTEGER NOT NULL DEFAULT 0,
+        token_count    INTEGER NOT NULL DEFAULT 0,
+        error_message  TEXT,
+        updated_at     TEXT NOT NULL,
+        PRIMARY KEY (run_id, file_path)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_indexing_run_files_status
+        ON indexing_run_files(run_id, status);
     `);
     setSchemaVersion(db, SCHEMA_VERSION);
   }

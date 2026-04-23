@@ -51,6 +51,7 @@ function makeDs(id: string, status: string = 'ready'): DataSourceConfig {
 function makeHandler(
   dataSources: DataSourceConfig[],
   searchResults: any[] = [],
+  chunkCounts: Record<string, number> = {},
 ) {
   const dsMap = new Map(dataSources.map((ds) => [ds.id, ds]));
 
@@ -78,6 +79,7 @@ function makeHandler(
       chunkCount: 50,
       totalTokens: 12000,
     }),
+    countByDataSource: vi.fn().mockImplementation((id: string) => chunkCounts[id] ?? 0),
   } as any;
 
   const handler = new ToolHandler(configManager, providerRegistry, retriever, contextBuilder, chunkStore);
@@ -101,6 +103,24 @@ describe('ToolHandler', () => {
       expect(retriever.search).toHaveBeenCalledWith(
         'test query',
         ['ds-1'],
+        expect.anything(),
+        10,
+      );
+    });
+
+    it('includes partial data sources when they already have chunks', async () => {
+      const ds1 = makeDs('ds-1', 'ready');
+      const ds2 = makeDs('ds-2', 'indexing');
+      const { handler, retriever } = makeHandler([ds1, ds2], [], { 'ds-2': 3 });
+
+      await handler.handleGlobalSearch(
+        { input: { query: 'test query' } } as any,
+        dummyToken as any,
+      );
+
+      expect(retriever.search).toHaveBeenCalledWith(
+        'test query',
+        ['ds-1', 'ds-2'],
         expect.anything(),
         10,
       );
@@ -187,6 +207,17 @@ describe('ToolHandler', () => {
 
       expect(chunkStore.getDataSourceStats).not.toHaveBeenCalled();
       expect(result.parts[0].value).toContain('indexing');
+    });
+
+    it('shows partial stats for searchable non-ready sources', async () => {
+      const ds1 = makeDs('ds-1', 'error');
+      const { handler, chunkStore } = makeHandler([ds1], [], { 'ds-1': 4 });
+
+      const result = await handler.handleList(dummyToken as any);
+
+      expect(chunkStore.getDataSourceStats).toHaveBeenCalledWith('ds-1');
+      expect(result.parts[0].value).toContain('[partial]');
+      expect(result.parts[0].value).toContain('50 chunks');
     });
 
     it('returns no data sources message when empty', async () => {

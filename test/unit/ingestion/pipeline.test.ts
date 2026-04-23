@@ -7,6 +7,7 @@ import { ChunkStore } from '../../../src/storage/chunkStore';
 import { EmbeddingStore } from '../../../src/storage/embeddingStore';
 import { SyncStore } from '../../../src/storage/syncStore';
 import { DataSourceStore } from '../../../src/storage/dataSourceStore';
+import { IndexingRunStore } from '../../../src/storage/indexingRunStore';
 import { GitHubFetcher } from '../../../src/sources/github/githubFetcher';
 import {
   IngestionPipeline,
@@ -80,6 +81,7 @@ describe('IngestionPipeline', () => {
   let embeddingStore: EmbeddingStore;
   let syncStore: SyncStore;
   let dsStore: DataSourceStore;
+  let indexingRunStore: IndexingRunStore;
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -89,6 +91,7 @@ describe('IngestionPipeline', () => {
     embeddingStore = new EmbeddingStore(db);
     syncStore = new SyncStore(db);
     dsStore = new DataSourceStore(db);
+    indexingRunStore = new IndexingRunStore(db);
   });
 
   afterEach(() => {
@@ -132,6 +135,7 @@ describe('IngestionPipeline', () => {
         chunkStore,
         embeddingStore,
         syncStore,
+        indexingRunStore,
         logger,
         deltaSync,
       ),
@@ -238,6 +242,7 @@ describe('IngestionPipeline', () => {
     expect(sync).toBeDefined();
     expect(sync!.status).toBe('completed');
     expect(sync!.filesProcessed).toBe(2);
+    expect(sync!.filesTotal).toBe(2);
     expect(sync!.chunksCreated).toBe(chunks.length);
 
     // Data source status updated
@@ -281,7 +286,7 @@ describe('IngestionPipeline', () => {
     expect(filePaths).toEqual(['src/index.ts']);
   });
 
-  it('clears old chunks before re-indexing', async () => {
+  it('removes stale files after a successful re-index', async () => {
     const ds = makeDataSource();
     const files = [{ path: 'a.ts', content: 'first version' }];
 
@@ -315,8 +320,26 @@ describe('IngestionPipeline', () => {
     await pipeline.ingestDataSource('ds-1');
 
     expect(dsMap.get('ds-1')!.status).toBe('error');
+    expect(dsMap.get('ds-1')!.errorMessage).toContain('GitHub branch lookup failed');
     expect(dsMap.get('ds-1')!.errorMessage).toContain('Network error');
     expect((logger.error as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('records stage-aware embedding transport failures while keeping partial chunks', async () => {
+    const ds = makeDataSource();
+    const files = [{ path: 'a.ts', content: 'export const a = 1;\n' }];
+    mockGitHubApi(files);
+
+    const provider = makeMockProvider();
+    provider.embed = vi.fn().mockRejectedValue(new Error('fetch failed'));
+
+    const { pipeline, dsMap } = makePipeline([ds], provider);
+    await pipeline.ingestDataSource('ds-1');
+
+    expect(dsMap.get('ds-1')!.status).toBe('error');
+    expect(dsMap.get('ds-1')!.errorMessage).toContain('Embedding batch failed');
+    expect(dsMap.get('ds-1')!.errorMessage).toContain('last file a.ts');
+    expect(chunkStore.getDataSourceStats('ds-1').fileCount).toBe(1);
   });
 
   it('removeDataSource clears chunks and embeddings', async () => {
@@ -395,6 +418,7 @@ describe('IngestionPipeline', () => {
       testChunkStore,
       testEmbeddingStore,
       testSyncStore,
+      new IndexingRunStore(testDb),
       makeMockLogger(),
     );
 
@@ -515,5 +539,133 @@ describe('IngestionPipeline', () => {
     expect(progress.report).toHaveBeenCalled();
     const messages = progress.report.mock.calls.map((c: any) => c[0]);
     expect(messages.some((m: string) => m.includes('Fetching'))).toBe(true);
+  });
+
+  it('resumes a partial run and only processes remaining files', async () => {
+    const ds = makeDataSource();
+    const files = [
+      { path: 'a.ts', content: 'export const a = 1;\n' },
+      { path: 'b.ts', content: 'export const b = 2;\n' },
+    ];
+
+    let tarballCalls = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const urlStr = String(url);
+      const headers = new Headers({
+        'X-RateLimit-Remaining': '4999',
+        'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 3600),
+      });
+
+      if (urlStr.includes('/branches/')) {
+        return {
+          ok: true, status: 200, statusText: 'OK', headers,
+          json: async () => ({ commit: { sha: 'abc123' } }),
+        };
+      }
+      if (urlStr.includes('/git/trees/')) {
+        return {
+          ok: true, status: 200, statusText: 'OK', headers,
+          json: async () => ({
+            tree: files.map((f, i) => ({
+              path: f.path,
+              sha: `blob-sha-${i}`,
+              size: f.content.length,
+              type: 'blob',
+            })),
+            truncated: false,
+          }),
+        };
+      }
+      if (urlStr.includes('/tarball/')) {
+        tarballCalls += 1;
+        const tarEntries = tarballCalls <= 2
+          ? [{ name: 'test-repo-abc123/a.ts', content: files[0].content }]
+          : [{ name: 'test-repo-abc123/b.ts', content: files[1].content }];
+        const tarball = await buildTarGz(tarEntries);
+        return {
+          ok: true, status: 200, statusText: 'OK', headers,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(tarball));
+              controller.close();
+            },
+          }),
+        };
+      }
+      return { ok: false, status: 404, statusText: 'Not Found', headers, text: async () => 'not found' };
+    });
+
+    const { pipeline, dsMap } = makePipeline([ds]);
+    await pipeline.ingestDataSource('ds-1');
+    expect(dsMap.get('ds-1')!.status).toBe('error');
+    expect(chunkStore.getDataSourceStats('ds-1').fileCount).toBe(1);
+
+    await pipeline.ingestDataSource('ds-1');
+    expect(dsMap.get('ds-1')!.status).toBe('ready');
+    expect(chunkStore.getDataSourceStats('ds-1').fileCount).toBe(2);
+  });
+
+  it('falls back to blob fetch when tarball streaming fails mid-run', async () => {
+    const ds = makeDataSource();
+    const files = [
+      { path: 'a.ts', content: 'export const a = 1;\n' },
+      { path: 'b.ts', content: 'export const b = 2;\n' },
+    ];
+
+    let tarballCallCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const urlStr = String(url);
+      const headers = new Headers({
+        'X-RateLimit-Remaining': '4999',
+        'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 3600),
+      });
+
+      if (urlStr.includes('/branches/')) {
+        return {
+          ok: true, status: 200, statusText: 'OK', headers,
+          json: async () => ({ commit: { sha: 'abc123' } }),
+        };
+      }
+      if (urlStr.includes('/git/trees/')) {
+        return {
+          ok: true, status: 200, statusText: 'OK', headers,
+          json: async () => ({
+            tree: files.map((f, i) => ({
+              path: f.path,
+              sha: `blob-sha-${i}`,
+              size: f.content.length,
+              type: 'blob',
+            })),
+            truncated: false,
+          }),
+        };
+      }
+      if (urlStr.includes('/tarball/')) {
+        tarballCallCount += 1;
+        if (tarballCallCount <= 2) {
+          throw new Error('fetch failed');
+        }
+      }
+      if (urlStr.includes('/git/blobs/')) {
+        const sha = urlStr.split('/blobs/')[1];
+        const idx = parseInt(sha.replace('blob-sha-', ''), 10);
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers,
+          text: async () => files[idx].content,
+        };
+      }
+      return { ok: false, status: 404, statusText: 'Not Found', headers, text: async () => 'not found' };
+    });
+
+    const { pipeline, dsMap } = makePipeline([ds]);
+    await pipeline.ingestDataSource('ds-1');
+
+    const sync = syncStore.getLatest('ds-1');
+    expect(dsMap.get('ds-1')!.status).toBe('ready');
+    expect(sync!.fetchStrategy).toBe('tarball+blob-fallback');
+    expect(chunkStore.getDataSourceStats('ds-1').fileCount).toBe(2);
   });
 });

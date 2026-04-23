@@ -26,10 +26,11 @@ export class DataSourceTreeItem extends vscode.TreeItem {
   constructor(
     public readonly dataSource: DataSourceConfig,
     private readonly progress?: IndexingProgress,
+    private readonly stats?: DataSourceStats,
   ) {
     super(
       `${dataSource.owner}/${dataSource.repo}`,
-      dataSource.status === 'ready'
+      isExpandable(dataSource, stats)
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None,
     );
@@ -37,10 +38,14 @@ export class DataSourceTreeItem extends vscode.TreeItem {
     if (dataSource.status === 'indexing' && progress) {
       const filesText = `${progress.processedFiles}/${progress.totalFiles} files`;
       const tokensText = `${formatNumber(progress.totalTokens)} tokens`;
-      this.description = `$(sync~spin) ${filesText} · ${tokensText}`;
+      const partialText = (stats?.fileCount ?? 0) > 0 ? ' · partial' : '';
+      this.description = `$(sync~spin) ${filesText} · ${tokensText}${partialText}`;
     } else {
       const icon = STATUS_ICONS[dataSource.status] || '$(question)';
-      this.description = `${icon} ${dataSource.branch}`;
+      const partialText = dataSource.status !== 'ready' && (stats?.fileCount ?? 0) > 0
+        ? ' · partial'
+        : '';
+      this.description = `${icon} ${dataSource.branch}${partialText}`;
     }
 
     this.tooltip = this.buildTooltip();
@@ -66,6 +71,11 @@ export class DataSourceTreeItem extends vscode.TreeItem {
     if (this.dataSource.lastSyncedAt) {
       lines.push(`Last synced: ${this.dataSource.lastSyncedAt}`);
     }
+    if (this.stats && this.stats.fileCount > 0) {
+      lines.push(
+        `Indexed so far: ${formatNumber(this.stats.fileCount)} files, ${formatNumber(this.stats.chunkCount)} chunks, ${formatNumber(this.stats.totalTokens)} tokens`,
+      );
+    }
     if (this.dataSource.errorMessage) {
       lines.push(`Error: ${this.dataSource.errorMessage}`);
     }
@@ -75,7 +85,8 @@ export class DataSourceTreeItem extends vscode.TreeItem {
 
 export class DataSourceInfoItem extends vscode.TreeItem {
   constructor(stats: DataSourceStats, dataSource: DataSourceConfig, embeddingModel?: string) {
-    const label = `${formatNumber(stats.fileCount)} files · ${formatNumber(stats.chunkCount)} chunks · ${formatNumber(stats.totalTokens)} tokens`;
+    const partialLabel = dataSource.status === 'ready' ? '' : ' · partial';
+    const label = `${formatNumber(stats.fileCount)} files · ${formatNumber(stats.chunkCount)} chunks · ${formatNumber(stats.totalTokens)} tokens${partialLabel}`;
     super(label, vscode.TreeItemCollapsibleState.None);
 
     this.iconPath = new vscode.ThemeIcon('info');
@@ -102,6 +113,10 @@ export class DataSourceInfoItem extends vscode.TreeItem {
     }
     this.tooltip = lines.join('\n');
   }
+}
+
+function isExpandable(dataSource: DataSourceConfig, stats?: DataSourceStats): boolean {
+  return dataSource.status === 'ready' || (stats?.fileCount ?? 0) > 0;
 }
 
 export class DataSourceFileItem extends vscode.TreeItem {
