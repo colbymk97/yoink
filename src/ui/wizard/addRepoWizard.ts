@@ -5,6 +5,7 @@ import { DataSourceManager, AddDataSourceOptions } from '../../sources/dataSourc
 import { DEFAULT_EXCLUDE_PATTERNS } from '../../config/configSchema';
 import { REPO_TYPE_PRESETS } from '../../config/repoTypePresets';
 import { EmbeddingManager } from '../../embedding/manager';
+import { parseCommaSeparatedPatterns } from '../patternInput';
 
 type RepoInputChoice =
   | (vscode.QuickPickItem & { value: 'url' | 'browse' })
@@ -73,11 +74,19 @@ export class AddRepoWizard {
       ignoreFocusOut: true,
     });
     if (includeInput === undefined) return;
-    const includePatterns = includeInput
-      ? includeInput.split(',').map((p) => p.trim()).filter(Boolean)
-      : [];
+    const includePatterns = parseCommaSeparatedPatterns(includeInput);
 
-    // Step 6: Sync schedule
+    // Step 6: Additional exclude patterns
+    const excludeInput = await vscode.window.showInputBox({
+      prompt: `Additional exclude patterns (comma-separated globs). Built-in excludes always apply: ${DEFAULT_EXCLUDE_PATTERNS.join(', ')}`,
+      placeHolder: 'examples/**, vendor/**, **/*.generated.ts',
+      value: '',
+      ignoreFocusOut: true,
+    });
+    if (excludeInput === undefined) return;
+    const excludePatterns = parseCommaSeparatedPatterns(excludeInput);
+
+    // Step 7: Sync schedule
     const scheduleItems = [
       { label: 'Manual', value: 'manual' as const },
       { label: 'On Startup', value: 'onStartup' as const },
@@ -97,7 +106,7 @@ export class AddRepoWizard {
       branch,
       type: selectedPreset.id,
       includePatterns,
-      excludePatterns: [...DEFAULT_EXCLUDE_PATTERNS],
+      excludePatterns,
       syncSchedule: schedule.value,
     };
     await this.dataSourceManager.add(dsOptions);

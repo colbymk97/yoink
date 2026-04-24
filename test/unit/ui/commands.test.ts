@@ -245,6 +245,72 @@ describe('registerCommands', () => {
     expect(vscode.window.showInputBox).not.toHaveBeenCalled();
   });
 
+  it('editDataSourceFromTree persists include and exclude patterns', async () => {
+    const editable = {
+      ...ds1,
+      description: 'old description',
+      includePatterns: ['src/**/*.ts'],
+      excludePatterns: ['fixtures/**'],
+      syncSchedule: 'manual' as const,
+    };
+    configManager.getDataSource.mockReturnValue(editable);
+    (vscode.window.showInputBox as any)
+      .mockResolvedValueOnce('new description')
+      .mockResolvedValueOnce('src/**/*.ts, docs/**/*.md')
+      .mockResolvedValueOnce('examples/**, vendor/**');
+    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
+      label: 'Daily',
+      value: 'daily',
+    });
+
+    await commands.get('yoink.editDataSourceFromTree')!({ dataSource: editable } as any);
+
+    expect(configManager.updateDataSource).toHaveBeenCalledWith('ds-1', {
+      description: 'new description',
+      syncSchedule: 'daily',
+      includePatterns: ['src/**/*.ts', 'docs/**/*.md'],
+      excludePatterns: ['examples/**', 'vendor/**'],
+    });
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      'Updated acme/widgets. Sync to apply file pattern changes.',
+    );
+  });
+
+  it('editDataSourceFromTree stores empty exclude patterns', async () => {
+    (vscode.window.showInputBox as any)
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('src/**/*.ts')
+      .mockResolvedValueOnce('');
+    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
+      label: 'Manual',
+      value: 'manual',
+    });
+
+    await commands.get('yoink.editDataSourceFromTree')!({ dataSource: ds1 } as any);
+
+    expect(configManager.updateDataSource).toHaveBeenCalledWith('ds-1', {
+      description: undefined,
+      syncSchedule: 'manual',
+      includePatterns: ['src/**/*.ts'],
+      excludePatterns: [],
+    });
+  });
+
+  it('editDataSourceFromTree cancels without saving when exclude input is dismissed', async () => {
+    (vscode.window.showInputBox as any)
+      .mockResolvedValueOnce('new description')
+      .mockResolvedValueOnce('src/**/*.ts')
+      .mockResolvedValueOnce(undefined);
+    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
+      label: 'Manual',
+      value: 'manual',
+    });
+
+    await commands.get('yoink.editDataSourceFromTree')!({ dataSource: ds1 } as any);
+
+    expect(configManager.updateDataSource).not.toHaveBeenCalled();
+  });
+
   it('manageEmbeddings delegates to the embedding manager', async () => {
     await commands.get('yoink.manageEmbeddings')!();
 

@@ -3,11 +3,12 @@ import { AddRepoWizard } from './wizard/addRepoWizard';
 import { DataSourceManager } from '../sources/dataSourceManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
-import { DataSourceConfig } from '../config/configSchema';
+import { DataSourceConfig, DEFAULT_EXCLUDE_PATTERNS } from '../config/configSchema';
 import { WorkspaceConfigManager } from '../config/workspaceConfig';
 import { DataSourceTreeItem } from './sidebar/sidebarTreeItems';
 import { AgentInstaller } from '../agents/agentInstaller';
 import { EmbeddingManager } from '../embedding/manager';
+import { parseCommaSeparatedPatterns } from './patternInput';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -156,7 +157,7 @@ export function registerCommands(
       const repoLabel = formatDataSourceLabel(ds);
 
       const description = await vscode.window.showInputBox({
-        title: `Edit ${repoLabel} (1/3)`,
+        title: `Edit ${repoLabel} (1/4)`,
         prompt: 'Description (optional)',
         value: ds.description ?? '',
         ignoreFocusOut: true,
@@ -169,30 +170,40 @@ export function registerCommands(
         { label: 'Daily', description: 'Sync once per day', value: 'daily' as const },
       ];
       const schedulePick = await vscode.window.showQuickPick<(typeof scheduleItems)[number]>(scheduleItems, {
-        title: `Edit ${repoLabel} (2/3)`,
+        title: `Edit ${repoLabel} (2/4)`,
         placeHolder: 'Sync schedule',
         ignoreFocusOut: true,
       });
       if (!schedulePick) return;
 
       const includeInput = await vscode.window.showInputBox({
-        title: `Edit ${repoLabel} (3/3)`,
+        title: `Edit ${repoLabel} (3/4)`,
         prompt: 'Include patterns (comma-separated globs, leave empty for all files)',
         value: ds.includePatterns.join(', '),
         ignoreFocusOut: true,
       });
       if (includeInput === undefined) return;
 
-      const includePatterns = includeInput
-        ? includeInput.split(',').map((p) => p.trim()).filter(Boolean)
-        : [];
+      const includePatterns = parseCommaSeparatedPatterns(includeInput);
+
+      const excludeInput = await vscode.window.showInputBox({
+        title: `Edit ${repoLabel} (4/4)`,
+        prompt: `Additional exclude patterns (comma-separated globs). Built-in excludes always apply: ${DEFAULT_EXCLUDE_PATTERNS.join(', ')}`,
+        placeHolder: 'examples/**, vendor/**, **/*.generated.ts',
+        value: ds.excludePatterns.join(', '),
+        ignoreFocusOut: true,
+      });
+      if (excludeInput === undefined) return;
+
+      const excludePatterns = parseCommaSeparatedPatterns(excludeInput);
 
       configManager.updateDataSource(ds.id, {
         description: description || undefined,
         syncSchedule: schedulePick.value,
         includePatterns,
+        excludePatterns,
       });
-      vscode.window.showInformationMessage(`Updated ${repoLabel}.`);
+      vscode.window.showInformationMessage(`Updated ${repoLabel}. Sync to apply file pattern changes.`);
     }),
 
     vscode.commands.registerCommand('yoink.exportConfig', async () => {

@@ -115,6 +115,8 @@ describe('AddRepoWizard', () => {
     (vscode.window.showQuickPick as any).mockResolvedValueOnce(generalPresetItem);
     // Include patterns
     (vscode.window.showInputBox as any).mockResolvedValueOnce('src/**/*.ts');
+    // Additional exclude patterns
+    (vscode.window.showInputBox as any).mockResolvedValueOnce('examples/**, **/*.generated.ts');
     // Sync schedule
     (vscode.window.showQuickPick as any).mockResolvedValueOnce({
       label: 'On Startup', value: 'onStartup',
@@ -152,6 +154,7 @@ describe('AddRepoWizard', () => {
         branch: 'main',
         type: 'general',
         includePatterns: ['src/**/*.ts'],
+        excludePatterns: ['examples/**', '**/*.generated.ts'],
         syncSchedule: 'onStartup',
       }),
     );
@@ -164,7 +167,8 @@ describe('AddRepoWizard', () => {
     queueTypedRepoInput('https://github.com/acme/widgets');
     (vscode.window.showInputBox as any)
       .mockResolvedValueOnce('main')
-      .mockResolvedValueOnce('src/**/*.ts');
+      .mockResolvedValueOnce('src/**/*.ts')
+      .mockResolvedValueOnce('');
     (vscode.window.showQuickPick as any)
       .mockResolvedValueOnce(generalPresetItem)
       .mockResolvedValueOnce({ label: 'On Startup', value: 'onStartup' });
@@ -220,7 +224,8 @@ describe('AddRepoWizard', () => {
     (vscode.window.showInputBox as any)
       .mockResolvedValueOnce('https://github.com/acme/actions')
       .mockResolvedValueOnce('main')
-      .mockImplementationOnce(async (opts: any) => opts.value); // accept pre-filled include value
+      .mockImplementationOnce(async (opts: any) => opts.value) // accept pre-filled include value
+      .mockResolvedValueOnce('');
 
     const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
@@ -229,6 +234,7 @@ describe('AddRepoWizard', () => {
       expect.objectContaining({
         type: 'github-actions-library',
         includePatterns: ['**/action.yml', '**/action.yaml', '**/README.md'],
+        excludePatterns: [],
       }),
     );
   });
@@ -277,7 +283,8 @@ describe('AddRepoWizard', () => {
     // Branch, include
     (vscode.window.showInputBox as any)
       .mockResolvedValueOnce('main')
-      .mockResolvedValueOnce('');
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('fixtures/**');
 
     const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
@@ -295,13 +302,37 @@ describe('AddRepoWizard', () => {
     (vscode.window.showInputBox as any)
       .mockResolvedValueOnce('https://github.com/acme/widgets')
       .mockResolvedValueOnce('main')
-      .mockResolvedValueOnce(''); // empty include
+      .mockResolvedValueOnce('') // empty include
+      .mockResolvedValueOnce('examples/**, vendor/**'); // custom excludes
 
     const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
     await wizard.run();
 
     expect(dataSourceManager.add).toHaveBeenCalledWith(
-      expect.objectContaining({ includePatterns: [] }),
+      expect.objectContaining({
+        includePatterns: [],
+        excludePatterns: ['examples/**', 'vendor/**'],
+      }),
+    );
+  });
+
+  it('stores empty exclude patterns as an empty array', async () => {
+    queueRepoInputChoice('url');
+    (vscode.window.showQuickPick as any)
+      .mockResolvedValueOnce(generalPresetItem)
+      .mockResolvedValueOnce({ label: 'Manual', value: 'manual' });
+
+    (vscode.window.showInputBox as any)
+      .mockResolvedValueOnce('https://github.com/acme/widgets')
+      .mockResolvedValueOnce('main')
+      .mockResolvedValueOnce('src/**/*.ts')
+      .mockResolvedValueOnce('');
+
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
+    await wizard.run();
+
+    expect(dataSourceManager.add).toHaveBeenCalledWith(
+      expect.objectContaining({ excludePatterns: [] }),
     );
   });
 });
