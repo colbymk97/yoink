@@ -1,6 +1,7 @@
 import { githubHeaders } from './githubResolver';
 
 const GITHUB_API = 'https://api.github.com';
+const USER_REPO_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export interface RepoSearchResult {
   owner: string;
@@ -12,6 +13,9 @@ export interface RepoSearchResult {
 }
 
 export class RepoBrowser {
+  private userRepoCache: { repos: RepoSearchResult[]; fetchedAt: number } | undefined;
+  private userRepoLoad: Promise<RepoSearchResult[]> | undefined;
+
   constructor(private readonly getToken: () => Promise<string>) {}
 
   async listUserRepos(page: number = 1, perPage: number = 30): Promise<RepoSearchResult[]> {
@@ -26,7 +30,31 @@ export class RepoBrowser {
     return (await res.json() as RepoListItem[]).map(mapRepoItem);
   }
 
-  async listAllUserRepos(): Promise<RepoSearchResult[]> {
+  hasFreshUserRepoCache(now: number = Date.now()): boolean {
+    return this.userRepoCache !== undefined &&
+      now - this.userRepoCache.fetchedAt < USER_REPO_CACHE_TTL_MS;
+  }
+
+  async listAllUserRepos(options: { forceRefresh?: boolean } = {}): Promise<RepoSearchResult[]> {
+    if (!options.forceRefresh && this.hasFreshUserRepoCache()) {
+      return [...this.userRepoCache!.repos];
+    }
+
+    if (!options.forceRefresh && this.userRepoLoad) {
+      return [...await this.userRepoLoad];
+    }
+
+    this.userRepoLoad = this.fetchAllUserRepos();
+    try {
+      const repos = await this.userRepoLoad;
+      this.userRepoCache = { repos, fetchedAt: Date.now() };
+      return [...repos];
+    } finally {
+      this.userRepoLoad = undefined;
+    }
+  }
+
+  private async fetchAllUserRepos(): Promise<RepoSearchResult[]> {
     const all: RepoSearchResult[] = [];
     let page = 1;
     while (true) {

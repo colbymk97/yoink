@@ -3,10 +3,12 @@ import { AddRepoWizard } from './wizard/addRepoWizard';
 import { DataSourceManager } from '../sources/dataSourceManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { ConfigManager } from '../config/configManager';
+import { DataSourceConfig, DEFAULT_EXCLUDE_PATTERNS } from '../config/configSchema';
 import { WorkspaceConfigManager } from '../config/workspaceConfig';
 import { DataSourceTreeItem } from './sidebar/sidebarTreeItems';
 import { AgentInstaller } from '../agents/agentInstaller';
 import { EmbeddingManager } from '../embedding/manager';
+import { parseCommaSeparatedPatterns } from './patternInput';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -33,9 +35,14 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('yoink.removeRepository', async () => {
-      const dataSources = configManager.getDataSources();
-      if (dataSources.length === 0) {
+      const allDataSources = configManager.getDataSources();
+      const dataSources = allDataSources.filter((ds) => ds.status !== 'deleting');
+      if (allDataSources.length === 0) {
         vscode.window.showInformationMessage('No data sources configured.');
+        return;
+      }
+      if (dataSources.length === 0) {
+        vscode.window.showInformationMessage('All configured data sources are already being removed.');
         return;
       }
       const picked = await vscode.window.showQuickPick(
@@ -47,15 +54,19 @@ export function registerCommands(
         { placeHolder: 'Select a data source to remove' },
       );
       if (picked) {
-        await dataSourceManager.remove(picked.id);
-        vscode.window.showInformationMessage(`Removed ${picked.label}.`);
+        await removeDataSourceWithFeedback(dataSourceManager, picked.id, picked.label);
       }
     }),
 
     vscode.commands.registerCommand('yoink.syncDataSource', async () => {
-      const dataSources = configManager.getDataSources();
-      if (dataSources.length === 0) {
+      const allDataSources = configManager.getDataSources();
+      const dataSources = allDataSources.filter((ds) => ds.status !== 'deleting');
+      if (allDataSources.length === 0) {
         vscode.window.showInformationMessage('No data sources configured.');
+        return;
+      }
+      if (dataSources.length === 0) {
+        vscode.window.showInformationMessage('All configured data sources are currently being removed.');
         return;
       }
       const picked = await vscode.window.showQuickPick(
@@ -106,32 +117,47 @@ export function registerCommands(
 
     // Tree-item context menu commands
     vscode.commands.registerCommand('yoink.syncDataSourceFromTree', async (item: DataSourceTreeItem) => {
-      await dataSourceManager.sync(item.dataSource.id);
+      const ds = getCurrentDataSource(configManager, item);
+      if (!ds) return;
+      if (ds.status === 'deleting') {
+        vscode.window.showInformationMessage(`${formatDataSourceLabel(ds)} is currently being removed.`);
+        return;
+      }
+      await dataSourceManager.sync(ds.id);
       vscode.window.showInformationMessage(
-        `Sync queued for ${item.dataSource.owner}/${item.dataSource.repo}.`,
+        `Sync queued for ${formatDataSourceLabel(ds)}.`,
       );
     }),
 
     vscode.commands.registerCommand('yoink.removeDataSourceFromTree', async (item: DataSourceTreeItem) => {
+      const ds = getCurrentDataSource(configManager, item);
+      if (!ds) return;
+      if (ds.status === 'deleting') {
+        vscode.window.showInformationMessage(`${formatDataSourceLabel(ds)} is already being removed.`);
+        return;
+      }
+      const label = formatDataSourceLabel(ds);
       const confirm = await vscode.window.showWarningMessage(
-        `Remove ${item.dataSource.owner}/${item.dataSource.repo}? This will delete all indexed data.`,
+        `Remove ${label}? This will delete all indexed data.`,
         { modal: true },
         'Remove',
       );
       if (confirm === 'Remove') {
-        await dataSourceManager.remove(item.dataSource.id);
-        vscode.window.showInformationMessage(
-          `Removed ${item.dataSource.owner}/${item.dataSource.repo}.`,
-        );
+        await removeDataSourceWithFeedback(dataSourceManager, ds.id, label);
       }
     }),
 
     vscode.commands.registerCommand('yoink.editDataSourceFromTree', async (item: DataSourceTreeItem) => {
-      const ds = item.dataSource;
-      const repoLabel = `${ds.owner}/${ds.repo}`;
+      const ds = getCurrentDataSource(configManager, item);
+      if (!ds) return;
+      if (ds.status === 'deleting') {
+        vscode.window.showInformationMessage(`${formatDataSourceLabel(ds)} is currently being removed.`);
+        return;
+      }
+      const repoLabel = formatDataSourceLabel(ds);
 
       const description = await vscode.window.showInputBox({
-        title: `Edit ${repoLabel} (1/3)`,
+        title: `Edit ${repoLabel} (1/4)`,
         prompt: 'Description (optional)',
         value: ds.description ?? '',
         ignoreFocusOut: true,
@@ -144,29 +170,60 @@ export function registerCommands(
         { label: 'Daily', description: 'Sync once per day', value: 'daily' as const },
       ];
       const schedulePick = await vscode.window.showQuickPick<(typeof scheduleItems)[number]>(scheduleItems, {
-        title: `Edit ${repoLabel} (2/3)`,
+        title: `Edit ${repoLabel} (2/4)`,
         placeHolder: 'Sync schedule',
         ignoreFocusOut: true,
       });
       if (!schedulePick) return;
 
       const includeInput = await vscode.window.showInputBox({
-        title: `Edit ${repoLabel} (3/3)`,
+        title: `Edit ${repoLabel} (3/4)`,
         prompt: 'Include patterns (comma-separated globs, leave empty for all files)',
         value: ds.includePatterns.join(', '),
         ignoreFocusOut: true,
       });
       if (includeInput === undefined) return;
 
-      const includePatterns = includeInput
-        ? includeInput.split(',').map((p) => p.trim()).filter(Boolean)
-        : [];
+      const includePatterns = parseCommaSeparatedPatterns(includeInput);
 
-      configManager.updateDataSource(ds.id, {
+      const excludeInput = await vscode.window.showInputBox({
+        title: `Edit ${repoLabel} (4/4)`,
+        prompt: `Additional exclude patterns (comma-separated globs). Built-in excludes always apply: ${DEFAULT_EXCLUDE_PATTERNS.join(', ')}`,
+        placeHolder: 'examples/**, vendor/**, **/*.generated.ts',
+        value: ds.excludePatterns.join(', '),
+        ignoreFocusOut: true,
+      });
+      if (excludeInput === undefined) return;
+
+      const excludePatterns = parseCommaSeparatedPatterns(excludeInput);
+      const patternsChanged =
+        !samePatterns(ds.includePatterns, includePatterns) ||
+        !samePatterns(ds.excludePatterns, excludePatterns);
+
+      const updates: Partial<DataSourceConfig> = {
         description: description || undefined,
         syncSchedule: schedulePick.value,
         includePatterns,
-      });
+        excludePatterns,
+      };
+      if (patternsChanged) {
+        updates.lastSyncCommitSha = null;
+      }
+
+      configManager.updateDataSource(ds.id, updates);
+      if (patternsChanged) {
+        try {
+          await dataSourceManager.sync(ds.id);
+          vscode.window.showInformationMessage(`Updated ${repoLabel}. Re-index queued to apply file pattern changes.`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          vscode.window.showWarningMessage(
+            `Updated ${repoLabel}, but re-index could not be queued: ${message}`,
+          );
+        }
+        return;
+      }
+
       vscode.window.showInformationMessage(`Updated ${repoLabel}.`);
     }),
 
@@ -195,4 +252,45 @@ export function registerCommands(
       }
     }),
   );
+}
+
+function getCurrentDataSource(
+  configManager: ConfigManager,
+  item: DataSourceTreeItem,
+): DataSourceConfig | undefined {
+  const ds = configManager.getDataSource(item.dataSource.id);
+  if (!ds) {
+    vscode.window.showInformationMessage('Data source is no longer configured.');
+    return undefined;
+  }
+  return ds;
+}
+
+function formatDataSourceLabel(ds: Pick<DataSourceConfig, 'owner' | 'repo'>): string {
+  return `${ds.owner}/${ds.repo}`;
+}
+
+function samePatterns(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((pattern, index) => pattern === b[index]);
+}
+
+async function removeDataSourceWithFeedback(
+  dataSourceManager: DataSourceManager,
+  id: string,
+  label: string,
+): Promise<void> {
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Removing ${label}...`,
+        cancellable: false,
+      },
+      () => dataSourceManager.remove(id),
+    );
+    vscode.window.showInformationMessage(`Removed ${label}.`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Yoink: Failed to remove ${label}: ${message}`);
+  }
 }

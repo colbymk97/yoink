@@ -55,6 +55,52 @@ describe('RepoBrowser', () => {
     expect(repos[1].description).toBeNull();
   });
 
+  it('caches the full user repo list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(SAMPLE_REPOS));
+    globalThis.fetch = fetchMock;
+
+    const browser = new RepoBrowser(async () => 'token');
+    const first = await browser.listAllUserRepos();
+    const second = await browser.listAllUserRepos();
+
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('force refresh bypasses the full user repo cache', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(mockResponse([SAMPLE_REPOS[0]]))
+      .mockResolvedValueOnce(mockResponse([SAMPLE_REPOS[1]]));
+    globalThis.fetch = fetchMock;
+
+    const browser = new RepoBrowser(async () => 'token');
+    await browser.listAllUserRepos();
+    const refreshed = await browser.listAllUserRepos({ forceRefresh: true });
+
+    expect(refreshed[0].repo).toBe('project-b');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('deduplicates concurrent full user repo loads', async () => {
+    let resolveFetch: (value: unknown) => void = () => {};
+    const fetchPromise = new Promise((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValue(fetchPromise);
+    globalThis.fetch = fetchMock;
+
+    const browser = new RepoBrowser(async () => 'token');
+    const first = browser.listAllUserRepos();
+    const second = browser.listAllUserRepos();
+
+    resolveFetch(mockResponse(SAMPLE_REPOS));
+
+    await expect(first).resolves.toHaveLength(2);
+    await expect(second).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('passes pagination params', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse([]));
     globalThis.fetch = fetchMock;

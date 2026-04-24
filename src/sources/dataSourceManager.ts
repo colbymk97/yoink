@@ -12,6 +12,7 @@ export interface AddDataSourceOptions {
   repo: string;
   branch: string;
   type: DataSourceType;
+  description?: string;
   includePatterns: string[];
   excludePatterns: string[];
   syncSchedule: 'manual' | 'onStartup' | 'daily';
@@ -60,6 +61,10 @@ export class DataSourceManager implements vscode.Disposable {
   }
 
   async sync(id: string): Promise<void> {
+    const ds = this.configManager.getDataSource(id);
+    if (!ds || ds.status === 'deleting') {
+      return;
+    }
     await this.assertApiKeyConfigured();
     this.configManager.updateDataSource(id, { status: 'queued' });
     this.pipeline.enqueue(id);
@@ -74,13 +79,51 @@ export class DataSourceManager implements vscode.Disposable {
 
   async syncAll(): Promise<void> {
     for (const ds of this.configManager.getDataSources()) {
+      if (ds.status === 'deleting') continue;
       await this.sync(ds.id);
     }
   }
 
   async remove(id: string): Promise<void> {
-    await this.pipeline.removeDataSource(id);
-    this.configManager.removeDataSource(id);
+    const ds = this.configManager.getDataSource(id);
+    if (!ds || ds.status === 'deleting') {
+      return;
+    }
+
+    this.configManager.updateDataSource(id, {
+      status: 'deleting',
+      errorMessage: undefined,
+    });
+    this.configManager.flush();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    try {
+      await this.pipeline.removeDataSource(id);
+      this.configManager.removeDataSource(id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.configManager.updateDataSource(id, {
+        status: 'error',
+        errorMessage: `Delete failed: ${message}`,
+      });
+      this.configManager.flush();
+      throw err;
+    }
+  }
+
+  recoverInterruptedDeletions(): void {
+    let recovered = false;
+    for (const ds of this.configManager.getDataSources()) {
+      if (ds.status !== 'deleting') continue;
+      this.configManager.updateDataSource(ds.id, {
+        status: 'error',
+        errorMessage: 'Deletion was interrupted. Remove again to retry.',
+      });
+      recovered = true;
+    }
+    if (recovered) {
+      this.configManager.flush();
+    }
   }
 
   dispose(): void {

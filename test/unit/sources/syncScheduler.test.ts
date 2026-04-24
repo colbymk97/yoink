@@ -10,7 +10,7 @@ vi.mock('vscode', () => ({
 
 import { SyncScheduler } from '../../../src/sources/sync/syncScheduler';
 
-function makeDs(id: string, schedule: string, lastSyncedAt: string | null = null) {
+function makeDs(id: string, schedule: string, lastSyncedAt: string | null = null, status = 'ready') {
   return {
     id,
     syncSchedule: schedule,
@@ -18,6 +18,7 @@ function makeDs(id: string, schedule: string, lastSyncedAt: string | null = null
     owner: 'o',
     repo: 'r',
     branch: 'main',
+    status,
   };
 }
 
@@ -65,6 +66,22 @@ describe('SyncScheduler', () => {
     scheduler.dispose();
   });
 
+  it('skips deleting onStartup sources', () => {
+    configManager = {
+      getDataSources: () => [
+        makeDs('ds-1', 'onStartup', null, 'deleting'),
+        makeDs('ds-2', 'onStartup'),
+      ],
+    };
+
+    const scheduler = new SyncScheduler(configManager, onSync);
+    scheduler.start();
+
+    expect(onSync).not.toHaveBeenCalledWith('ds-1');
+    expect(onSync).toHaveBeenCalledWith('ds-2');
+    scheduler.dispose();
+  });
+
   it('triggers daily sources that have never synced', () => {
     configManager = {
       getDataSources: () => [makeDs('ds-1', 'daily', null)],
@@ -78,6 +95,21 @@ describe('SyncScheduler', () => {
     vi.advanceTimersByTime(60 * 60 * 1000);
 
     expect(onSync).toHaveBeenCalledWith('ds-1');
+    scheduler.dispose();
+  });
+
+  it('skips deleting daily sources', () => {
+    configManager = {
+      getDataSources: () => [makeDs('ds-1', 'daily', null, 'deleting')],
+    };
+
+    const scheduler = new SyncScheduler(configManager, onSync);
+    scheduler.start();
+    onSync.mockClear();
+
+    vi.advanceTimersByTime(60 * 60 * 1000);
+
+    expect(onSync).not.toHaveBeenCalled();
     scheduler.dispose();
   });
 

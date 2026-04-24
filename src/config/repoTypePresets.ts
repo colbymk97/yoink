@@ -57,7 +57,7 @@ export const REPO_TYPE_PRESETS: Record<DataSourceType, RepoTypePreset> = {
     id: 'cicd-workflows',
     displayName: 'CI/CD workflows',
     wizardDescription: '.github/workflows/** — one chunk per workflow file',
-    includePatterns: ['.github/workflows/**'],
+    includePatterns: ['.github/workflows/**', '**/README.md'],
     toolDescriptionTemplate: (o, r) =>
       `Search CI/CD workflow definitions in ${o}/${r} — pipelines, jobs, and triggers`,
   },
@@ -65,7 +65,7 @@ export const REPO_TYPE_PRESETS: Record<DataSourceType, RepoTypePreset> = {
     id: 'openapi-specs',
     displayName: 'OpenAPI / specs',
     wizardDescription: 'YAML/JSON API spec files',
-    includePatterns: ['**/*.yaml', '**/*.yml', '**/*.json', 'openapi/**', 'swagger/**'],
+    includePatterns: ['**/*.yaml', '**/*.yml', '**/*.json', 'openapi/**', 'swagger/**', '**/README.md'],
     toolDescriptionTemplate: (o, r) =>
       `Search API specs in ${o}/${r} — endpoints, operations, and schemas`,
   },

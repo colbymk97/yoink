@@ -26,6 +26,7 @@ export class SyncScheduler implements vscode.Disposable {
 
   private triggerOnStartupSources(): void {
     for (const ds of this.configManager.getDataSources()) {
+      if (ds.status === 'deleting') continue;
       if (ds.syncSchedule === 'onStartup') {
         this.onSyncTriggered(ds.id);
       }
@@ -35,6 +36,7 @@ export class SyncScheduler implements vscode.Disposable {
   private triggerDailySources(): void {
     const now = Date.now();
     for (const ds of this.configManager.getDataSources()) {
+      if (ds.status === 'deleting') continue;
       if (ds.syncSchedule !== 'daily') continue;
       if (!ds.lastSyncedAt) {
         this.onSyncTriggered(ds.id);

@@ -17,7 +17,7 @@ export interface DataSourceConfig {
   errorMessage?: string;
 }
 
-export type DataSourceStatus = 'queued' | 'indexing' | 'ready' | 'error';
+export type DataSourceStatus = 'queued' | 'indexing' | 'ready' | 'error' | 'deleting';
 
 export interface YoinkConfig {
   version: number;

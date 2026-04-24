@@ -390,6 +390,7 @@ export class ToolHandler {
   }
 
   private isSearchableSource(ds: import('../config/configSchema').DataSourceConfig): boolean {
+    if (ds.status === 'deleting') return false;
     return ds.status === 'ready' || this.chunkStore.countByDataSource(ds.id) > 0;
   }
 

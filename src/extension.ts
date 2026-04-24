@@ -100,6 +100,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   const dataSourceManager = new DataSourceManager(configManager, pipeline, embeddingManager);
   dataSourceManagerRef.current = dataSourceManager;
+  dataSourceManager.recoverInterruptedDeletions();
 
   // Retrieval
   const retriever = new Retriever(chunkStore, embeddingStore);
@@ -140,7 +141,7 @@ export function activate(context: vscode.ExtensionContext): void {
     dataSourceManager,
     embeddingManager,
     providerRegistry,
-    () => new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager),
+    () => new AddRepoWizard(resolver, browser, fetcher, dataSourceManager, embeddingManager),
     workspaceConfigManager,
     agentInstaller,
   );

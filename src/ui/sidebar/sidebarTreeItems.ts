@@ -16,6 +16,7 @@ const STATUS_ICONS: Record<string, string> = {
   indexing: '$(sync~spin)',
   ready: '$(check)',
   error: '$(error)',
+  deleting: '$(sync~spin)',
 };
 
 function formatNumber(n: number): string {
@@ -35,7 +36,9 @@ export class DataSourceTreeItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None,
     );
 
-    if (dataSource.status === 'indexing' && progress) {
+    if (dataSource.status === 'deleting') {
+      this.description = '$(sync~spin) Deleting...';
+    } else if (dataSource.status === 'indexing' && progress) {
       const filesText = `${progress.processedFiles}/${progress.totalFiles} files`;
       const tokensText = `${formatNumber(progress.totalTokens)} tokens`;
       const partialText = (stats?.fileCount ?? 0) > 0 ? ' · partial' : '';
@@ -49,7 +52,7 @@ export class DataSourceTreeItem extends vscode.TreeItem {
     }
 
     this.tooltip = this.buildTooltip();
-    this.contextValue = 'dataSource';
+    this.contextValue = dataSource.status === 'deleting' ? 'dataSourceDeleting' : 'dataSource';
 
     if (dataSource.status === 'error') {
       this.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
@@ -67,7 +70,7 @@ export class DataSourceTreeItem extends vscode.TreeItem {
     if (this.dataSource.description) {
       lines.push(this.dataSource.description);
     }
-    lines.push(`Status: ${this.dataSource.status}`);
+    lines.push(`Status: ${formatStatus(this.dataSource.status)}`);
     if (this.dataSource.lastSyncedAt) {
       lines.push(`Last synced: ${this.dataSource.lastSyncedAt}`);
     }
@@ -116,7 +119,12 @@ export class DataSourceInfoItem extends vscode.TreeItem {
 }
 
 function isExpandable(dataSource: DataSourceConfig, stats?: DataSourceStats): boolean {
+  if (dataSource.status === 'deleting') return false;
   return dataSource.status === 'ready' || (stats?.fileCount ?? 0) > 0;
+}
+
+function formatStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 export class DataSourceFileItem extends vscode.TreeItem {

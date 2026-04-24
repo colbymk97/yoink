@@ -89,6 +89,14 @@ describe('DataSourceTreeItem', () => {
     expect(item.contextValue).toBe('dataSource');
   });
 
+  it('shows deleting state with a spinner and disabled context', () => {
+    const item = new DataSourceTreeItem(makeDs({ status: 'deleting' }));
+    expect(item.description).toBe('$(sync~spin) Deleting...');
+    expect(item.contextValue).toBe('dataSourceDeleting');
+    expect(item.tooltip).toContain('Status: Deleting');
+    expect((item.iconPath as any).id).toBe('loading~spin');
+  });
+
   it('is collapsible when status is ready', () => {
     const item = new DataSourceTreeItem(makeDs({ status: 'ready' }));
     expect(item.collapsibleState).toBe(1); // Collapsed
@@ -116,6 +124,15 @@ describe('DataSourceTreeItem', () => {
 
   it('is not collapsible when status is queued', () => {
     const item = new DataSourceTreeItem(makeDs({ status: 'queued' }));
+    expect(item.collapsibleState).toBe(0); // None
+  });
+
+  it('is not collapsible while deleting even with indexed chunks', () => {
+    const item = new DataSourceTreeItem(
+      makeDs({ status: 'deleting' }),
+      undefined,
+      { fileCount: 2, chunkCount: 4, totalTokens: 120 },
+    );
     expect(item.collapsibleState).toBe(0); // None
   });
 });
