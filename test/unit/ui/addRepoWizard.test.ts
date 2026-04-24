@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const quickPickState = vi.hoisted(() => ({
+  drivers: [] as Array<(quickPick: any) => void>,
+}));
+
 vi.mock('vscode', () => ({
   window: {
     showQuickPick: vi.fn(),
@@ -7,6 +11,49 @@ vi.mock('vscode', () => ({
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
     withProgress: vi.fn().mockImplementation((_opts: unknown, fn: () => unknown) => fn()),
+    createQuickPick: vi.fn().mockImplementation(() => {
+      let onDidChangeValue: ((value: string) => void) | undefined;
+      let onDidAccept: (() => void) | undefined;
+      let onDidHide: (() => void) | undefined;
+      const quickPick: any = {
+        value: '',
+        placeholder: undefined,
+        matchOnDescription: false,
+        items: [],
+        activeItems: [],
+        selectedItems: [],
+        onDidChangeValue: vi.fn().mockImplementation((cb: (value: string) => void) => {
+          onDidChangeValue = cb;
+          return { dispose: vi.fn() };
+        }),
+        onDidAccept: vi.fn().mockImplementation((cb: () => void) => {
+          onDidAccept = cb;
+          return { dispose: vi.fn() };
+        }),
+        onDidHide: vi.fn().mockImplementation((cb: () => void) => {
+          onDidHide = cb;
+          return { dispose: vi.fn() };
+        }),
+        show: vi.fn().mockImplementation(() => {
+          const driver = quickPickState.drivers.shift();
+          driver?.(quickPick);
+        }),
+        dispose: vi.fn(),
+        _changeValue: (value: string) => {
+          quickPick.value = value;
+          onDidChangeValue?.(value);
+        },
+        _accept: (item?: any) => {
+          if (item) {
+            quickPick.selectedItems = [item];
+            quickPick.activeItems = [item];
+          }
+          onDidAccept?.();
+        },
+        _hide: () => onDidHide?.(),
+      };
+      return quickPick;
+    }),
   },
   ProgressLocation: { Notification: 15 },
 }));
@@ -37,6 +84,7 @@ describe('AddRepoWizard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    quickPickState.drivers = [];
 
     resolver = {
       resolve: vi.fn().mockResolvedValue(metadata),
@@ -56,9 +104,7 @@ describe('AddRepoWizard', () => {
 
   function setupFullFlow() {
     // Step 1: Choose URL input
-    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
-      label: 'Paste URL', value: 'url',
-    });
+    queueRepoInputChoice('url');
     // URL input
     (vscode.window.showInputBox as any).mockResolvedValueOnce(
       'https://github.com/acme/widgets',
@@ -72,6 +118,23 @@ describe('AddRepoWizard', () => {
     // Sync schedule
     (vscode.window.showQuickPick as any).mockResolvedValueOnce({
       label: 'On Startup', value: 'onStartup',
+    });
+  }
+
+  function queueRepoInputChoice(value: 'url' | 'browse') {
+    quickPickState.drivers.push((quickPick) => {
+      const choice = quickPick.items.find((item: any) => item.value === value);
+      quickPick._accept(choice);
+    });
+  }
+
+  function queueTypedRepoInput(value: string, acceptUseUrl = true) {
+    quickPickState.drivers.push((quickPick) => {
+      quickPick._changeValue(value);
+      if (acceptUseUrl) {
+        const choice = quickPick.items.find((item: any) => item.value === 'direct-url');
+        quickPick._accept(choice);
+      }
     });
   }
 
@@ -97,6 +160,52 @@ describe('AddRepoWizard', () => {
     );
   });
 
+  it('accepts a pasted URL in the first wizard step', async () => {
+    queueTypedRepoInput('https://github.com/acme/widgets');
+    (vscode.window.showInputBox as any)
+      .mockResolvedValueOnce('main')
+      .mockResolvedValueOnce('src/**/*.ts');
+    (vscode.window.showQuickPick as any)
+      .mockResolvedValueOnce(generalPresetItem)
+      .mockResolvedValueOnce({ label: 'On Startup', value: 'onStartup' });
+
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
+    await wizard.run();
+
+    expect(resolver.resolve).toHaveBeenCalledWith('acme', 'widgets');
+    expect(vscode.window.showInputBox).not.toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'GitHub repository URL' }),
+    );
+    expect(dataSourceManager.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'acme',
+        repo: 'widgets',
+      }),
+    );
+  });
+
+  it('does not offer a direct URL choice for invalid typed text', async () => {
+    quickPickState.drivers.push((quickPick) => {
+      quickPick._changeValue('not a url');
+      expect(quickPick.items.some((item: any) => item.value === 'direct-url')).toBe(false);
+      quickPick._hide();
+    });
+
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
+    await wizard.run();
+
+    expect(dataSourceManager.add).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the first repository input quick pick is dismissed', async () => {
+    quickPickState.drivers.push((quickPick) => quickPick._hide());
+
+    const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
+    await wizard.run();
+
+    expect(dataSourceManager.add).not.toHaveBeenCalled();
+  });
+
   it('pre-populates include patterns from the selected type preset', async () => {
     const actionsPresetItem = {
       label: 'GitHub Actions library',
@@ -105,9 +214,9 @@ describe('AddRepoWizard', () => {
     };
 
     (vscode.window.showQuickPick as any)
-      .mockResolvedValueOnce({ label: 'Paste URL', value: 'url' })
       .mockResolvedValueOnce(actionsPresetItem)
       .mockResolvedValueOnce({ label: 'On Startup', value: 'onStartup' });
+    queueRepoInputChoice('url');
     (vscode.window.showInputBox as any)
       .mockResolvedValueOnce('https://github.com/acme/actions')
       .mockResolvedValueOnce('main')
@@ -125,9 +234,7 @@ describe('AddRepoWizard', () => {
   });
 
   it('cancels when user dismisses URL input', async () => {
-    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
-      label: 'Paste URL', value: 'url',
-    });
+    queueRepoInputChoice('url');
     (vscode.window.showInputBox as any).mockResolvedValueOnce(undefined);
 
     const wizard = new AddRepoWizard(resolver, browser, dataSourceManager, embeddingManager);
@@ -137,9 +244,7 @@ describe('AddRepoWizard', () => {
   });
 
   it('cancels when user dismisses branch input', async () => {
-    (vscode.window.showQuickPick as any).mockResolvedValueOnce({
-      label: 'Paste URL', value: 'url',
-    });
+    queueRepoInputChoice('url');
     (vscode.window.showInputBox as any).mockResolvedValueOnce(
       'https://github.com/acme/widgets',
     );
@@ -158,9 +263,8 @@ describe('AddRepoWizard', () => {
     ]);
 
     // Step 1: choose browse
+    queueRepoInputChoice('browse');
     (vscode.window.showQuickPick as any)
-      .mockResolvedValueOnce({ label: 'Browse', value: 'browse' })
-      // repo picker
       .mockResolvedValueOnce({
         label: 'acme/widgets',
         repo: { owner: 'acme', repo: 'widgets' },
@@ -183,8 +287,8 @@ describe('AddRepoWizard', () => {
   });
 
   it('handles empty include patterns', async () => {
+    queueRepoInputChoice('url');
     (vscode.window.showQuickPick as any)
-      .mockResolvedValueOnce({ label: 'Paste URL', value: 'url' })
       .mockResolvedValueOnce(generalPresetItem)
       .mockResolvedValueOnce({ label: 'Manual', value: 'manual' });
 

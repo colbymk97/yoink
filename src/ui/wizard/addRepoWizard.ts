@@ -6,6 +6,13 @@ import { DEFAULT_EXCLUDE_PATTERNS } from '../../config/configSchema';
 import { REPO_TYPE_PRESETS } from '../../config/repoTypePresets';
 import { EmbeddingManager } from '../../embedding/manager';
 
+type RepoInputChoice =
+  | (vscode.QuickPickItem & { value: 'url' | 'browse' })
+  | (vscode.QuickPickItem & {
+      value: 'direct-url';
+      parsed: { owner: string; repo: string };
+    });
+
 export class AddRepoWizard {
   constructor(
     private readonly resolver: GitHubResolver,
@@ -101,14 +108,12 @@ export class AddRepoWizard {
   }
 
   private async getRepoInput(): Promise<{ owner: string; repo: string } | undefined> {
-    const choice = await vscode.window.showQuickPick<{ label: string; value: 'url' | 'browse' }>(
-      [
-        { label: '$(link) Paste Repository URL', value: 'url' },
-        { label: '$(search) Browse My Repositories', value: 'browse' },
-      ],
-      { placeHolder: 'How would you like to add a repository?' },
-    );
+    const choice = await this.pickRepoInputChoice();
     if (!choice) return undefined;
+
+    if (choice.value === 'direct-url') {
+      return choice.parsed;
+    }
 
     if (choice.value === 'url') {
       const url = await vscode.window.showInputBox({
@@ -141,5 +146,60 @@ export class AddRepoWizard {
     );
     if (!picked) return undefined;
     return { owner: picked.repo.owner, repo: picked.repo.repo };
+  }
+
+  private pickRepoInputChoice(): Promise<RepoInputChoice | undefined> {
+    const pasteUrlChoice: RepoInputChoice = {
+      label: '$(link) Paste Repository URL',
+      value: 'url',
+    };
+    const browseChoice: RepoInputChoice = {
+      label: '$(search) Browse My Repositories',
+      value: 'browse',
+    };
+    const defaultChoices = [pasteUrlChoice, browseChoice];
+
+    return new Promise((resolve) => {
+      const quickPick = vscode.window.createQuickPick<RepoInputChoice>();
+      let settled = false;
+
+      const settle = (choice: RepoInputChoice | undefined) => {
+        if (settled) return;
+        settled = true;
+        quickPick.dispose();
+        resolve(choice);
+      };
+
+      const updateItems = (value: string) => {
+        const trimmed = value.trim();
+        const result = parseRepoUrl(trimmed);
+        if (isRepoUrlResult(result)) {
+          const directChoice: RepoInputChoice = {
+            label: `$(link) Use ${trimmed}`,
+            description: `${result.owner}/${result.repo}`,
+            value: 'direct-url',
+            parsed: result,
+          };
+          quickPick.items = [directChoice, ...defaultChoices];
+          quickPick.activeItems = [directChoice];
+          return;
+        }
+
+        quickPick.items = defaultChoices;
+        quickPick.activeItems = [];
+        quickPick.selectedItems = [];
+      };
+
+      quickPick.placeholder = 'How would you like to add a repository? Paste a GitHub URL or choose an option.';
+      quickPick.matchOnDescription = true;
+      quickPick.items = defaultChoices;
+      quickPick.onDidChangeValue(updateItems);
+      quickPick.onDidAccept(() => {
+        const choice = quickPick.selectedItems[0] ?? quickPick.activeItems[0];
+        settle(choice);
+      });
+      quickPick.onDidHide(() => settle(undefined));
+      quickPick.show();
+    });
   }
 }
