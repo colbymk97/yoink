@@ -31,7 +31,10 @@ export class Retriever {
         ? this.embeddingStore.search(queryEmbedding, dataSourceIds, fetchK)
         : this.embeddingStore.searchAll(queryEmbedding, fetchK);
 
-    const ftsResults = this.chunkStore.searchFts(query, dataSourceIds, fetchK);
+    const ftsResults =
+      dataSourceIds.length > 0
+        ? this.chunkStore.searchFts(query, dataSourceIds, fetchK)
+        : this.chunkStore.searchFtsAll(query, fetchK);
 
     const vecRank = new Map(vecResults.map((r, i) => [r.chunkId, i + 1]));
     const ftsRank = new Map(ftsResults.map((r, i) => [r.chunkId, i + 1]));

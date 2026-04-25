@@ -3,7 +3,7 @@ import { openDatabase } from '../../../src/storage/database';
 import { ChunkStore, ChunkRecord } from '../../../src/storage/chunkStore';
 import { EmbeddingStore } from '../../../src/storage/embeddingStore';
 import { DataSourceStore } from '../../../src/storage/dataSourceStore';
-import { Retriever, RetrievalResult } from '../../../src/retrieval/retriever';
+import { Retriever } from '../../../src/retrieval/retriever';
 import { EmbeddingProvider } from '../../../src/embedding/embeddingProvider';
 import Database from 'better-sqlite3';
 
@@ -15,7 +15,7 @@ function makeProvider(embedResult: number[][]): EmbeddingProvider {
     maxBatchSize: 100,
     maxInputTokens: 8000,
     dimensions: DIMS,
-    embed: async (texts: string[]) => embedResult,
+    embed: async (_texts: string[]) => embedResult,
     countTokens: (text: string) => Math.ceil(text.length / 4),
   };
 }
@@ -80,6 +80,12 @@ describe('Retriever', () => {
     expect(results.length).toBe(3);
   });
 
+  it('uses FTS matches when searching all data sources', async () => {
+    const provider = makeProvider([[0, 0, 0, 1]]);
+    const results = await retriever.search('Foo', [], provider, 10);
+    expect(results.map((r) => r.chunk.id)).toContain('c3');
+  });
+
   it('respects topK limit', async () => {
     const provider = makeProvider([[1, 0, 0, 0]]);
     const results = await retriever.search('query', [], provider, 1);
@@ -110,6 +116,16 @@ describe('Retriever', () => {
     expect(results[0].chunk.startLine).toBe(1);
     expect(results[0].chunk.endLine).toBe(5);
     expect(typeof results[0].distance).toBe('number');
+  });
+
+  it('skips stale embedding rows whose chunk has been deleted', async () => {
+    chunkStore.deleteByFile('ds-1', 'a.ts');
+
+    const provider = makeProvider([[0.9, 0.1, 0, 0]]);
+    const results = await retriever.search('query', [], provider, 10);
+
+    expect(results.map((r) => r.chunk.id)).not.toContain('c1');
+    expect(results.map((r) => r.chunk.id).sort()).toEqual(['c2', 'c3']);
   });
 
   it('surfaces FTS-only matches (no vector match) in results', async () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock vscode before any imports that use it
 vi.mock('vscode', () => ({
@@ -52,6 +52,9 @@ function makeHandler(
   dataSources: DataSourceConfig[],
   searchResults: any[] = [],
   chunkCounts: Record<string, number> = {},
+  fileContents: Record<string, string | Error> = {},
+  fileStats: any[] = [],
+  chunks: any[] = [],
 ) {
   const dsMap = new Map(dataSources.map((ds) => [ds.id, ds]));
 
@@ -80,13 +83,47 @@ function makeHandler(
       totalTokens: 12000,
     }),
     countByDataSource: vi.fn().mockImplementation((id: string) => chunkCounts[id] ?? 0),
+    getFileStats: vi.fn().mockReturnValue(fileStats),
+    getByDataSource: vi.fn().mockReturnValue(chunks),
   } as any;
 
-  const handler = new ToolHandler(configManager, providerRegistry, retriever, contextBuilder, chunkStore);
-  return { handler, retriever, contextBuilder, providerRegistry, chunkStore };
+  const fetcher = {
+    getFileContents: vi.fn().mockImplementation(
+      (_owner: string, _repo: string, filePath: string) => {
+        const value = fileContents[filePath];
+        return value instanceof Error ? Promise.reject(value) : Promise.resolve(value ?? '');
+      },
+    ),
+  } as any;
+
+  const handler = new ToolHandler(
+    configManager,
+    providerRegistry,
+    retriever,
+    contextBuilder,
+    chunkStore,
+    fetcher,
+  );
+  return { handler, retriever, contextBuilder, providerRegistry, chunkStore, fetcher };
 }
 
 const dummyToken = { isCancellationRequested: false, onCancellationRequested: vi.fn() };
+
+function makeFileStats(filePath: string, tokenCount = 100) {
+  return { filePath, chunkCount: 1, tokenCount };
+}
+
+function makeChunk(filePath: string, content: string, dataSourceId = 'repo') {
+  return {
+    id: `chunk-${filePath}`,
+    dataSourceId,
+    filePath,
+    startLine: 1,
+    endLine: content.split('\n').length,
+    content,
+    tokenCount: Math.ceil(content.length / 4),
+  };
+}
 
 describe('ToolHandler', () => {
   describe('handleGlobalSearch', () => {
@@ -259,17 +296,264 @@ describe('ToolHandler', () => {
     });
   });
 
-  describe('source filtering', () => {
-    it('does not treat deleting sources as available to file-tree tools', async () => {
-      const ds1 = makeDs('ds-1', 'deleting');
-      const { handler } = makeHandler([ds1], [], { 'ds-1': 4 });
+  describe('handleGetFiles', () => {
+    it('requires at least one file', async () => {
+      const { handler, fetcher } = makeHandler([makeDs('repo')]);
 
-      const result = await handler.handleFileTree(
-        { input: { repository: 'test/ds-1' } } as any,
+      const result = await handler.handleGetFiles({ input: { files: [] } } as any, dummyToken as any);
+
+      expect(result.parts[0].value).toContain('Provide at least one file');
+      expect(fetcher.getFileContents).not.toHaveBeenCalled();
+    });
+
+    it('rejects requests above the per-call file limit before fetching', async () => {
+      const { handler, fetcher } = makeHandler([makeDs('repo')]);
+      const files = Array.from({ length: 11 }, (_, i) => ({
+        repository: 'test/repo',
+        filePath: `src/file-${i}.ts`,
+      }));
+
+      const result = await handler.handleGetFiles({ input: { files } } as any, dummyToken as any);
+
+      expect(result.parts[0].value).toContain('Too many files requested (11)');
+      expect(fetcher.getFileContents).not.toHaveBeenCalled();
+    });
+
+    it('fetches from the configured branch and returns a requested line range', async () => {
+      const ds = makeDs('repo');
+      ds.branch = 'release';
+      const { handler, fetcher } = makeHandler(
+        [ds],
+        [],
+        {},
+        { 'src/app.ts': ['one', 'two', 'three', 'four'].join('\n') },
+      );
+
+      const result = await handler.handleGetFiles(
+        {
+          input: {
+            files: [{
+              repository: 'TEST/REPO',
+              filePath: 'src/app.ts',
+              startLine: 2,
+              endLine: 3,
+            }],
+          },
+        } as any,
         dummyToken as any,
       );
 
-      expect(result.parts[0].value).toContain('No repositories are indexed yet');
+      expect(fetcher.getFileContents).toHaveBeenCalledWith('test', 'repo', 'src/app.ts', 'release');
+      expect(result.parts[0].value).toContain('lines 2–3 of 4');
+      expect(result.parts[0].value).toContain('two\nthree');
+      expect(result.parts[0].value).not.toContain('one');
+      expect(result.parts[0].value).not.toContain('four');
+    });
+
+    it('reports mixed per-file failures without failing the whole request', async () => {
+      const { handler } = makeHandler(
+        [makeDs('repo')],
+        [],
+        {},
+        {
+          'src/good.ts': 'export const ok = true;',
+          'src/missing.ts': new Error('Not Found'),
+        },
+      );
+
+      const result = await handler.handleGetFiles(
+        {
+          input: {
+            files: [
+              { repository: 'test/repo', filePath: 'src/good.ts' },
+              { repository: 'test/repo', filePath: 'assets/logo.png' },
+              { repository: 'test/unknown', filePath: 'src/other.ts' },
+              { repository: 'test/repo', filePath: 'src/missing.ts' },
+            ],
+          },
+        } as any,
+        dummyToken as any,
+      );
+
+      const text = result.parts[0].value;
+      expect(text).toContain('1/4 files fetched');
+      expect(text).toContain('export const ok = true;');
+      expect(text).toContain('Skipped: binary file (.png)');
+      expect(text).toContain('Error: repository not indexed. Available: test/repo');
+      expect(text).toContain('Error: Not Found');
+    });
+
+    it('rejects oversized files with a range hint', async () => {
+      const { handler } = makeHandler(
+        [makeDs('repo')],
+        [],
+        {},
+        { 'src/huge.ts': 'x'.repeat(500_001) },
+      );
+
+      const result = await handler.handleGetFiles(
+        { input: { files: [{ repository: 'test/repo', filePath: 'src/huge.ts' }] } } as any,
+        dummyToken as any,
+      );
+
+      expect(result.parts[0].value).toContain('Error: file too large');
+      expect(result.parts[0].value).toContain('Use startLine/endLine');
+    });
+  });
+
+  describe('handleListWorkflows', () => {
+    it('lists workflow files with names and block triggers', async () => {
+      const workflow = [
+        'name: CI',
+        'on:',
+        '  push:',
+        '  pull_request:',
+        'jobs:',
+        '  test:',
+      ].join('\n');
+      const { handler, chunkStore } = makeHandler(
+        [makeDs('repo')],
+        [],
+        {},
+        {},
+        [
+          makeFileStats('.github/workflows/ci.yml'),
+          makeFileStats('.github/workflows/readme.md'),
+          makeFileStats('deploy.yaml'),
+        ],
+        [makeChunk('.github/workflows/ci.yml', workflow)],
+      );
+
+      const result = await handler.handleListWorkflows(
+        { input: { repository: 'test/repo' } } as any,
+        dummyToken as any,
+      );
+
+      const text = result.parts[0].value;
+      expect(chunkStore.getFileStats).toHaveBeenCalledWith('repo');
+      expect(text).toContain('## test/repo');
+      expect(text).toContain('`.github/workflows/ci.yml`');
+      expect(text).toContain('**CI**');
+      expect(text).toContain('`push`');
+      expect(text).toContain('`pull_request`');
+      expect(text).not.toContain('readme.md');
+      expect(text).not.toContain('deploy.yaml');
+    });
+
+    it('reports when no workflow files are indexed', async () => {
+      const { handler } = makeHandler(
+        [makeDs('repo')],
+        [],
+        {},
+        {},
+        [makeFileStats('src/index.ts')],
+      );
+
+      const result = await handler.handleListWorkflows(
+        { input: { repository: 'repo' } } as any,
+        dummyToken as any,
+      );
+
+      expect(result.parts[0].value).toContain('No workflow files found');
+    });
+  });
+
+  describe('handleListActions', () => {
+    it('lists action metadata and required inputs', async () => {
+      const action = [
+        'name: "Setup Widget"',
+        'description: "Configures widgets"',
+        'inputs:',
+        '  token:',
+        '    required: true',
+        '  cache-key:',
+        '    required: false',
+      ].join('\n');
+      const { handler, chunkStore } = makeHandler(
+        [makeDs('repo')],
+        [],
+        {},
+        {},
+        [
+          makeFileStats('action.yml'),
+          makeFileStats('tools/build/action.yaml'),
+          makeFileStats('.github/workflows/ci.yml'),
+        ],
+        [
+          makeChunk('action.yml', action),
+          makeChunk('tools/build/action.yaml', 'name: Build Action'),
+        ],
+      );
+
+      const result = await handler.handleListActions(
+        { input: { repository: 'test/repo' } } as any,
+        dummyToken as any,
+      );
+
+      const text = result.parts[0].value;
+      expect(chunkStore.getByDataSource).toHaveBeenCalledWith('repo');
+      expect(text).toContain('`action.yml`');
+      expect(text).toContain('**Setup Widget**');
+      expect(text).toContain('Configures widgets');
+      expect(text).toContain('`token` (required)');
+      expect(text).toContain('`cache-key`');
+      expect(text).toContain('`tools/build/action.yaml`');
+      expect(text).not.toContain('ci.yml');
+    });
+
+    it('includes searchable partial repositories', async () => {
+      const partial = makeDs('repo', 'indexing');
+      const { handler } = makeHandler(
+        [partial],
+        [],
+        { repo: 2 },
+        {},
+        [makeFileStats('action.yaml')],
+        [makeChunk('action.yaml', 'name: Partial Action')],
+      );
+
+      const result = await handler.handleListActions(
+        { input: { repository: 'repo' } } as any,
+        dummyToken as any,
+      );
+
+      expect(result.parts[0].value).toContain('## test/repo (partial)');
+      expect(result.parts[0].value).toContain('**Partial Action**');
+    });
+  });
+
+  describe('handleFileTree', () => {
+    it('renders a filtered file tree and marks partial repositories', async () => {
+      const partial = makeDs('repo', 'indexing');
+      const { handler } = makeHandler(
+        [partial],
+        [],
+        { repo: 3 },
+        {},
+        [
+          makeFileStats('src/index.ts', 40),
+          makeFileStats('src/index.test.ts', 20),
+          makeFileStats('docs/readme.md', 30),
+        ],
+      );
+
+      const result = await handler.handleFileTree(
+        {
+          input: {
+            repository: 'test/repo',
+            path: 'src',
+            exclude: ['**/*.test.ts'],
+            pageSize: 20,
+          },
+        } as any,
+        dummyToken as any,
+      );
+
+      const text = result.parts[0].value;
+      expect(text).toContain('test/repo@main [partial]');
+      expect(text).toContain('index.ts');
+      expect(text).not.toContain('index.test.ts');
+      expect(text).not.toContain('readme.md');
     });
   });
 });

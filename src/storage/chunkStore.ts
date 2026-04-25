@@ -138,6 +138,24 @@ export class ChunkStore {
     return rows.map((r) => ({ chunkId: r.chunk_id, bm25Score: r.score }));
   }
 
+  searchFtsAll(query: string, topK: number): Array<{ chunkId: string; bm25Score: number }> {
+    const clean = sanitizeFtsQuery(query);
+    if (!clean) return [];
+
+    const stmt = this.db.prepare(`
+      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, 5.0, 1.0) AS score
+      FROM chunks_fts
+      WHERE chunks_fts MATCH ?
+      ORDER BY score DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(clean, topK) as Array<{
+      chunk_id: string;
+      score: number;
+    }>;
+    return rows.map((r) => ({ chunkId: r.chunk_id, bm25Score: r.score }));
+  }
+
   getById(id: string): ChunkRecord | undefined {
     const row = this.getByIdStmt.get(id) as Record<string, unknown> | undefined;
     return row ? mapRow(row) : undefined;

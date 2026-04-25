@@ -62,6 +62,7 @@ const WORKSPACE_CONFIG_PATH = path.join('/workspace', '.vscode', 'yoink.json');
 describe('WorkspaceConfigManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: '/workspace' } }];
   });
 
   describe('buildShareableConfig', () => {
@@ -103,6 +104,16 @@ describe('WorkspaceConfigManager', () => {
 
       expect(result).toHaveProperty('$schema');
       expect(result.version).toBe(1);
+    });
+
+    it('includes defaultExcludePatterns when they are customized', () => {
+      const configManager = makeConfigManager();
+      configManager.getDefaultExcludePatterns.mockReturnValue(['**/generated/**']);
+      const mgr = new WorkspaceConfigManager(configManager, makeDataSourceManager(), makeLogger());
+
+      const result = mgr.buildShareableConfig();
+
+      expect(result.defaultExcludePatterns).toEqual(['**/generated/**']);
     });
   });
 
@@ -217,6 +228,30 @@ describe('WorkspaceConfigManager', () => {
 
       expect(configManager.flush).toHaveBeenCalled();
     });
+
+    it('defaults missing data source type to general', async () => {
+      const configManager = makeConfigManager();
+      const dsMgr = makeDataSourceManager();
+      const mgr = new WorkspaceConfigManager(configManager, dsMgr, makeLogger());
+
+      await mgr.importConfig({
+        version: 1,
+        dataSources: [{
+          repoUrl: 'https://github.com/acme/widgets',
+          owner: 'acme',
+          repo: 'widgets',
+          branch: 'main',
+          includePatterns: ['src/**'],
+          excludePatterns: [],
+          syncSchedule: 'manual',
+        }],
+      });
+
+      expect(dsMgr.add).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'general',
+        includePatterns: ['src/**'],
+      }));
+    });
   });
 
   describe('exportConfig', () => {
@@ -286,6 +321,66 @@ describe('WorkspaceConfigManager', () => {
     });
   });
 
+  describe('importFromWorkspace', () => {
+    it('shows an informational message when no workspace config exists', async () => {
+      const mgr = new WorkspaceConfigManager(
+        makeConfigManager(),
+        makeDataSourceManager(),
+        makeLogger(),
+      );
+
+      (fs.existsSync as any).mockReturnValue(false);
+
+      await mgr.importFromWorkspace();
+
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+        'No .vscode/yoink.json found in this workspace.',
+      );
+    });
+
+    it('reports parse failures without importing', async () => {
+      const dsMgr = makeDataSourceManager();
+      const mgr = new WorkspaceConfigManager(makeConfigManager(), dsMgr, makeLogger());
+
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue('{not json');
+
+      await mgr.importFromWorkspace();
+
+      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+        'Failed to parse .vscode/yoink.json. Check the file format.',
+      );
+      expect(dsMgr.add).not.toHaveBeenCalled();
+    });
+
+    it('shows a warning summary when import completes with warnings', async () => {
+      const dsMgr = makeDataSourceManager();
+      dsMgr.add.mockRejectedValue(new Error('API key missing'));
+      const mgr = new WorkspaceConfigManager(makeConfigManager(), dsMgr, makeLogger());
+      const shareable: ShareableConfig = {
+        version: 1,
+        dataSources: [{
+          repoUrl: 'https://github.com/acme/widgets',
+          owner: 'acme',
+          repo: 'widgets',
+          branch: 'main',
+          includePatterns: [],
+          excludePatterns: [],
+          syncSchedule: 'manual',
+        }],
+      };
+
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue(JSON.stringify(shareable));
+
+      await mgr.importFromWorkspace();
+
+      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('1 warning(s) — check the Yoink output log.'),
+      );
+    });
+  });
+
   describe('detectAndPrompt', () => {
     it('prompts when workspace config exists', async () => {
       const configManager = makeConfigManager();
@@ -306,6 +401,39 @@ describe('WorkspaceConfigManager', () => {
         'Yoink config found in this workspace. Import data sources?',
         'Import',
         'Not Now',
+      );
+    });
+
+    it('imports when the user accepts the workspace prompt', async () => {
+      const dsMgr = makeDataSourceManager();
+      const mgr = new WorkspaceConfigManager(makeConfigManager(), dsMgr, makeLogger());
+      const shareable: ShareableConfig = {
+        version: 1,
+        dataSources: [{
+          repoUrl: 'https://github.com/acme/widgets',
+          owner: 'acme',
+          repo: 'widgets',
+          branch: 'main',
+          includePatterns: [],
+          excludePatterns: [],
+          syncSchedule: 'manual',
+        }],
+      };
+
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue(JSON.stringify(shareable));
+      (vscode.window.showInformationMessage as any)
+        .mockResolvedValueOnce('Import')
+        .mockReturnValueOnce(undefined);
+
+      await mgr.detectAndPrompt();
+
+      expect(dsMgr.add).toHaveBeenCalledWith(expect.objectContaining({
+        owner: 'acme',
+        repo: 'widgets',
+      }));
+      expect(vscode.window.showInformationMessage).toHaveBeenLastCalledWith(
+        'Yoink: Imported 1 data source.',
       );
     });
 

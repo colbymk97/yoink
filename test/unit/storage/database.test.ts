@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { openDatabase, getEmbeddingDimensions, recreateEmbeddingsTable } from '../../../src/storage/database';
+import {
+  openDatabase,
+  getEmbeddingDimensions,
+  recreateEmbeddingsTable,
+} from '../../../src/storage/database';
+import { ChunkStore } from '../../../src/storage/chunkStore';
+import * as sqliteVec from 'sqlite-vec';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -87,6 +93,94 @@ describe('openDatabase', () => {
       .get() as { value: string };
     expect(row.value).toBe('4');
     db2.close();
+  });
+
+  it('migrates v3 databases to v4 without losing chunks or FTS rows', () => {
+    const dir = makeTempDir();
+    const dbPath = path.join(dir, 'yoink.db');
+    const oldDb = new Database(dbPath);
+    oldDb.pragma('foreign_keys = ON');
+    sqliteVec.load(oldDb);
+    oldDb.exec(`
+      CREATE TABLE meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT INTO meta (key, value) VALUES ('schema_version', '3');
+      INSERT INTO meta (key, value) VALUES ('embedding_dimensions', '4');
+
+      CREATE VIRTUAL TABLE embeddings USING vec0(
+        chunk_id TEXT PRIMARY KEY,
+        embedding FLOAT[4]
+      );
+
+      CREATE TABLE data_sources (
+        id                TEXT PRIMARY KEY,
+        owner             TEXT NOT NULL,
+        repo              TEXT NOT NULL,
+        branch            TEXT NOT NULL,
+        status            TEXT NOT NULL DEFAULT 'queued',
+        last_synced_at    TEXT,
+        last_sync_commit  TEXT,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE chunks (
+        id              TEXT PRIMARY KEY,
+        data_source_id  TEXT NOT NULL,
+        file_path       TEXT NOT NULL,
+        start_line      INTEGER NOT NULL,
+        end_line        INTEGER NOT NULL,
+        content         TEXT NOT NULL,
+        token_count     INTEGER NOT NULL,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE sync_history (
+        id              TEXT PRIMARY KEY,
+        data_source_id  TEXT NOT NULL,
+        started_at      TEXT NOT NULL,
+        completed_at    TEXT,
+        status          TEXT NOT NULL,
+        files_processed INTEGER DEFAULT 0,
+        chunks_created  INTEGER DEFAULT 0,
+        error_message   TEXT,
+        commit_sha      TEXT
+      );
+
+      CREATE VIRTUAL TABLE chunks_fts USING fts5(
+        chunk_id       UNINDEXED,
+        data_source_id UNINDEXED,
+        file_path,
+        content,
+        tokenize = 'porter ascii'
+      );
+
+      INSERT INTO data_sources (id, owner, repo, branch, status)
+      VALUES ('ds1', 'owner', 'repo', 'main', 'ready');
+      INSERT INTO chunks (id, data_source_id, file_path, start_line, end_line, content, token_count)
+      VALUES ('c1', 'ds1', 'src/search.ts', 1, 3, 'legacy migration sentinel', 3);
+      INSERT INTO chunks_fts (chunk_id, data_source_id, file_path, content)
+      VALUES ('c1', 'ds1', 'src/search.ts', 'legacy migration sentinel');
+    `);
+    oldDb.close();
+
+    const db = openDatabase({ storagePath: dir, dimensions: 4 });
+    const version = db
+      .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+      .get() as { value: string };
+    const syncColumns = db.prepare('PRAGMA table_info(sync_history)').all() as Array<{ name: string }>;
+    const indexingRuns = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='indexing_runs'")
+      .all();
+
+    expect(version.value).toBe('4');
+    expect(syncColumns.map((c) => c.name)).toContain('tokens_indexed');
+    expect(indexingRuns).toHaveLength(1);
+    expect(new ChunkStore(db).searchFts('sentinel', ['ds1'], 10).map((r) => r.chunkId)).toEqual([
+      'c1',
+    ]);
+    db.close();
   });
 });
 

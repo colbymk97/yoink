@@ -20,7 +20,7 @@ jobs:
       - run: npm run lint
 
   test:
-    name: Test
+    name: Test + Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run coverage:json
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: warn
 
   build:
     name: Build

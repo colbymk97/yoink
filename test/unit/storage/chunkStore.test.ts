@@ -191,6 +191,11 @@ describe('ChunkStore', () => {
       expect(results).toHaveLength(0);
     });
 
+    it('searchFtsAll searches across data sources when no scope is desired', () => {
+      const results = chunkStore.searchFtsAll('parseRepoUrl', 10);
+      expect(results.map((r) => r.chunkId).sort()).toEqual(['fts2', 'fts3']);
+    });
+
     it('returns higher bm25Score for better matches', () => {
       const results = chunkStore.searchFts('parseRepoUrl', ['ds1', 'ds2'], 10);
       expect(results.length).toBeGreaterThan(0);
@@ -207,6 +212,40 @@ describe('ChunkStore', () => {
       chunkStore.deleteByFile('ds1', 'src/auth/middleware.ts');
       const results = chunkStore.searchFts('authenticate', ['ds1'], 10);
       expect(results).toHaveLength(0);
+    });
+
+    it('deleteByFile leaves same-path FTS entries in other data sources intact', () => {
+      chunkStore.insert(makeChunk({
+        id: 'shared-ds1',
+        dataSourceId: 'ds1',
+        filePath: 'shared/readme.md',
+        content: 'shared scoped deletion sentinel',
+      }));
+      chunkStore.insert(makeChunk({
+        id: 'shared-ds2',
+        dataSourceId: 'ds2',
+        filePath: 'shared/readme.md',
+        content: 'shared scoped deletion sentinel',
+      }));
+
+      chunkStore.deleteByFile('ds1', 'shared/readme.md');
+
+      expect(chunkStore.searchFts('sentinel', ['ds1'], 10)).toEqual([]);
+      expect(chunkStore.searchFts('sentinel', ['ds2'], 10).map((r) => r.chunkId)).toEqual([
+        'shared-ds2',
+      ]);
+    });
+
+    it('rolls back chunks and FTS rows when insertMany fails', () => {
+      expect(() =>
+        chunkStore.insertMany([
+          makeChunk({ id: 'tx-ok', content: 'transaction rollback sentinel' }),
+          makeChunk({ id: 'tx-ok', filePath: 'dupe.ts', content: 'duplicate id' }),
+        ]),
+      ).toThrow();
+
+      expect(chunkStore.getById('tx-ok')).toBeUndefined();
+      expect(chunkStore.searchFts('rollback', ['ds1'], 10)).toEqual([]);
     });
 
     it('boosts results where query term appears in file path', () => {
