@@ -175,24 +175,55 @@ export class Chunker {
   // semantic splitting, so we divide by character count as a last resort.
   private enforceInputLimit(chunks: Chunk[]): Chunk[] {
     const out: Chunk[] = [];
-    for (const chunk of chunks) {
+    const queue = [...chunks];
+    while (queue.length > 0) {
+      const chunk = queue.shift()!;
       if (chunk.tokenCount <= this.maxInputTokens) {
         out.push(chunk);
         continue;
       }
+      if (chunk.content.length <= 1) {
+        out.push(chunk);
+        continue;
+      }
+
       const ratio = chunk.content.length / Math.max(chunk.tokenCount, 1);
-      const maxChars = Math.max(1, Math.floor(this.maxInputTokens * ratio * 0.9));
+      const estimatedMaxChars = Math.max(1, Math.floor(this.maxInputTokens * ratio * 0.9));
+      const maxChars = Math.min(chunk.content.length - 1, estimatedMaxChars);
+
       let offset = 0;
       let lineCursor = chunk.startLine;
       while (offset < chunk.content.length) {
         const slice = chunk.content.slice(offset, offset + maxChars);
         const newlines = (slice.match(/\n/g) ?? []).length;
-        out.push({
+        const splitChunk: Chunk = {
           content: slice,
           startLine: lineCursor,
           endLine: lineCursor + newlines,
           tokenCount: this.countTokens(slice),
-        });
+        };
+        if (splitChunk.tokenCount > this.maxInputTokens && splitChunk.content.length > 1) {
+          const midpoint = Math.floor(splitChunk.content.length / 2);
+          const left = splitChunk.content.slice(0, midpoint);
+          const right = splitChunk.content.slice(midpoint);
+          const leftNewlines = (left.match(/\n/g) ?? []).length;
+          queue.unshift(
+            {
+              content: right,
+              startLine: splitChunk.startLine + leftNewlines,
+              endLine: splitChunk.endLine,
+              tokenCount: this.countTokens(right),
+            },
+            {
+              content: left,
+              startLine: splitChunk.startLine,
+              endLine: splitChunk.startLine + leftNewlines,
+              tokenCount: this.countTokens(left),
+            },
+          );
+        } else {
+          out.push(splitChunk);
+        }
         lineCursor += newlines;
         offset += maxChars;
       }
