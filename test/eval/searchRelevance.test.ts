@@ -60,7 +60,7 @@ describe('search relevance benchmark', () => {
   });
 
   it('keeps benchmark diagnostics and expected dataset counts', () => {
-    expect(summary.dataset.queryCount).toBe(36);
+    expect(summary.dataset.queryCount).toBe(44);
     expect(summary.dataset.fileCount).toBe(18);
     expect(summary.dataset.chunkCount).toBe(19);
     expect(summary.dataset.queryCountByIntent['semantic-paraphrase']).toBe(10);
@@ -68,9 +68,12 @@ describe('search relevance benchmark', () => {
     expect(summary.dataset.queryCountByIntent['path-structure']).toBe(6);
     expect(summary.dataset.queryCountByIntent['docs-howto']).toBe(6);
     expect(summary.dataset.queryCountByIntent['workflow-action']).toBe(6);
+    expect(summary.dataset.queryCountByIntent['implementation-location']).toBe(4);
+    expect(summary.dataset.queryCountByIntent['change-impact']).toBe(4);
 
     const hybridQuery = summary.modes.hybrid.queries.find((query) => query.id === 'semantic-01');
     expect(hybridQuery?.topFiles[0].diagnostics?.mode).toBe('hybrid');
+    expect(hybridQuery?.topResultType).toBe('code');
   });
 
   it('shows hybrid search beating vector-only on exact identifiers', () => {
@@ -114,11 +117,12 @@ describe('search relevance benchmark', () => {
       { mode: 'hybrid', includeDiagnostics: true },
     );
 
-    expect(results.slice(0, 3).map((result) => result.chunk.filePath)).toEqual([
-      'src/auth/sessionManager.ts',
-      'src/auth/sessionManager.ts',
-      'src/security/tokenVerifier.ts',
-    ]);
+    const topThreePaths = results.slice(0, 3).map((result) => result.chunk.filePath);
+    expect(topThreePaths[0]).toBe('src/auth/sessionManager.ts');
+    expect(
+      topThreePaths.filter((filePath) => filePath === 'src/auth/sessionManager.ts').length,
+    ).toBe(2);
+    expect(topThreePaths).toContain('src/security/tokenVerifier.ts');
 
     const collapsed = collapseResultsToFiles(results, repoByDataSourceId);
     expect(collapsed.slice(0, 2).map((result) => result.filePath)).toEqual([

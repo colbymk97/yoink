@@ -1,0 +1,222 @@
+[
+  {
+    "id": "task-01",
+    "repository": null,
+    "searchQuery": "where do we turn a raw login token into a browser session",
+    "question": "Find the implementation that creates a browser session from a raw login token and explain the responsible function.",
+    "intent": "implementation-location",
+    "failureBucket": "task-navigation",
+    "embedding": [0.98, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/auth/sessionManager.ts",
+        "chunkId": "app-auth-session-1",
+        "mustMention": ["exchangeSessionCookie", "createSessionFromBearer"]
+      }
+    ],
+    "goldAnswer": "The implementation lives in src/auth/sessionManager.ts. The key function is exchangeSessionCookie, which creates a session from the raw bearer token.",
+    "taskSteps": [
+      "Search for the implementation location.",
+      "Choose the most relevant file to inspect next.",
+      "Use the selected file contents to answer the question."
+    ],
+    "maxFilesToFetch": 1
+  },
+  {
+    "id": "task-02",
+    "repository": null,
+    "searchQuery": "how do failed HTTP calls back off before retrying",
+    "question": "Locate the retry implementation and summarize the backoff values it uses.",
+    "intent": "implementation-location",
+    "failureBucket": "task-navigation",
+    "embedding": [0.05, 0.98, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/http/retryPolicy.ts", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/http/retryPolicy.ts",
+        "chunkId": "app-http-retry",
+        "mustMention": ["DEFAULT_BACKOFF_MS", "1000"]
+      }
+    ],
+    "goldAnswer": "The retry logic is in src/http/retryPolicy.ts. It uses DEFAULT_BACKOFF_MS values of 100, 250, and 500, and then falls back to 1000.",
+    "taskSteps": [
+      "Search for retry logic.",
+      "Fetch the best matching file.",
+      "Answer using the fetched file."
+    ],
+    "maxFilesToFetch": 1
+  },
+  {
+    "id": "task-03",
+    "repository": null,
+    "searchQuery": "where is the release publish workflow defined",
+    "question": "Find the files that define extension publishing for releases and explain how they relate.",
+    "intent": "workflow-action",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.1, 0.0, 0.0, 0.82, 0.0, 0.18, 0.99],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/release.yml", "grade": 3 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-platform",
+        "filePath": ".github/workflows/release.yml",
+        "chunkId": "workflow-release",
+        "mustMention": ["Release Extension", "publish"]
+      }
+    ],
+    "goldAnswer": "The main workflow is .github/workflows/release.yml, which drives release publishing. It is complemented by actions/publish-extension/action.yml, the reusable action that performs the publish step.",
+    "taskSteps": [
+      "Search for the release publishing flow.",
+      "Choose the workflow file and any reusable action it depends on.",
+      "Explain the relationship between them."
+    ],
+    "maxFilesToFetch": 2
+  },
+  {
+    "id": "task-04",
+    "repository": null,
+    "searchQuery": "how do I connect a repository after GitHub auth",
+    "question": "Find the documentation that explains connecting a repository after GitHub authentication and summarize the steps.",
+    "intent": "docs-howto",
+    "failureBucket": "task-navigation",
+    "embedding": [0.82, 0.05, 0.0, 0.0, 0.1, 0.0, 0.98, 0.0],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-docs", "filePath": "docs/authentication-guide.md", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-docs",
+        "filePath": "docs/authentication-guide.md",
+        "chunkId": "docs-auth-guide",
+        "mustMention": ["paste a repository URL", "add the data source"]
+      }
+    ],
+    "goldAnswer": "The instructions are in docs/authentication-guide.md. The documented flow is to connect GitHub, paste the repository URL, approve access, and then add the data source after sign-in completes.",
+    "taskSteps": [
+      "Search the docs for the onboarding flow.",
+      "Fetch the most relevant documentation file.",
+      "Summarize the steps."
+    ],
+    "maxFilesToFetch": 1
+  },
+  {
+    "id": "task-05",
+    "repository": null,
+    "searchQuery": "if the API base URL env var changes where should I look",
+    "question": "Identify the implementation and docs a maintainer should inspect when changing the API base URL environment variable.",
+    "intent": "change-impact",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.0, 0.0, 0.15, 0.95, 0.0, 0.96, 0.0],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/config/envLoader.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/configuration-reference.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/config/envLoader.ts",
+        "chunkId": "app-config-env",
+        "mustMention": ["YOINK_API_BASE_URL", "loadEnvironmentOverrides"]
+      }
+    ],
+    "goldAnswer": "Inspect src/config/envLoader.ts for the implementation and docs/configuration-reference.md for the documentation of the endpoint override.",
+    "taskSteps": [
+      "Search for the configuration surface.",
+      "Choose the implementation file and supporting documentation.",
+      "Explain why each file matters."
+    ],
+    "maxFilesToFetch": 2
+  },
+  {
+    "id": "task-06",
+    "repository": null,
+    "searchQuery": "if cache warmup behavior changes what should I inspect",
+    "question": "Find the main implementation and supporting operational docs for cache warmup behavior.",
+    "intent": "change-impact",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.1, 0.92, 0.0, 0.1, 0.0, 0.94, 0.0],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/cache/cacheWarmer.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/cache-operations.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/cache/cacheWarmer.ts",
+        "chunkId": "app-cache-warmer",
+        "mustMention": ["primeRepositoryCache", "CACHE_WARMUP_LIMIT"]
+      }
+    ],
+    "goldAnswer": "The main implementation is src/cache/cacheWarmer.ts and the operational guidance is in docs/cache-operations.md.",
+    "taskSteps": [
+      "Search for cache warmup behavior.",
+      "Pick the implementation file and the operational doc.",
+      "Answer using both."
+    ],
+    "maxFilesToFetch": 2
+  },
+  {
+    "id": "task-07",
+    "repository": null,
+    "searchQuery": "if ranking fusion weights change where should I look",
+    "question": "Locate the implementation and documentation relevant to search fusion weight changes.",
+    "intent": "change-impact",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.0, 0.08, 0.98, 0.0, 0.0, 0.95, 0.1],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/search/queryPlanner.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/search-tuning.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/search/queryPlanner.ts",
+        "chunkId": "app-search-planner",
+        "mustMention": ["RRF_K", "PATH_WEIGHT", "blendSignals"]
+      }
+    ],
+    "goldAnswer": "Inspect src/search/queryPlanner.ts for the actual ranking constants and logic, plus docs/search-tuning.md for the intended retrieval behavior.",
+    "taskSteps": [
+      "Search for ranking fusion logic.",
+      "Choose the implementation file and design doc.",
+      "Explain why they are the right follow-up files."
+    ],
+    "maxFilesToFetch": 2
+  },
+  {
+    "id": "task-08",
+    "repository": null,
+    "searchQuery": "action that publishes the extension package",
+    "question": "Find the reusable action that publishes the extension package and identify the key secret-like input it expects.",
+    "intent": "workflow-action",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.05, 0.0, 0.0, 0.84, 0.0, 0.2, 0.99],
+    "acceptableFiles": [
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-actions",
+        "filePath": "actions/publish-extension/action.yml",
+        "chunkId": "action-publish-extension",
+        "mustMention": ["marketplaceToken", "vsixPath"]
+      }
+    ],
+    "goldAnswer": "The reusable action is actions/publish-extension/action.yml, and it expects marketplaceToken as the key publishing credential input.",
+    "taskSteps": [
+      "Search for the publishing action.",
+      "Fetch the selected action file.",
+      "Answer with the action name and the key input."
+    ],
+    "maxFilesToFetch": 1
+  }
+]

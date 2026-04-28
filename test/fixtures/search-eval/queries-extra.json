@@ -1,0 +1,97 @@
+[
+  {
+    "id": "implementation-01",
+    "repository": "acme/yoink-app",
+    "query": "where is the session cookie created after login",
+    "intent": "implementation-location",
+    "failureBucket": "semantic-ranking",
+    "embedding": [0.98, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 3 },
+      { "repository": "acme/yoink-app", "filePath": "src/security/tokenVerifier.ts", "grade": 1 }
+    ]
+  },
+  {
+    "id": "implementation-02",
+    "repository": "acme/yoink-app",
+    "query": "where is retry delay calculated",
+    "intent": "implementation-location",
+    "failureBucket": "keyword-ranking",
+    "embedding": [0.05, 0.98, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/http/retryPolicy.ts", "grade": 3 }
+    ]
+  },
+  {
+    "id": "implementation-03",
+    "repository": "acme/yoink-platform",
+    "query": "where is the release publish workflow defined",
+    "intent": "implementation-location",
+    "failureBucket": "path-boost",
+    "embedding": [0.0, 0.1, 0.0, 0.0, 0.82, 0.0, 0.18, 0.99],
+    "relevantFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/release.yml", "grade": 3 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 2 }
+    ]
+  },
+  {
+    "id": "implementation-04",
+    "repository": "acme/yoink-app",
+    "query": "where do environment overrides get loaded",
+    "intent": "implementation-location",
+    "failureBucket": "semantic-ranking",
+    "embedding": [0.0, 0.0, 0.0, 0.1, 0.98, 0.0, 0.0, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/config/envLoader.ts", "grade": 3 }
+    ]
+  },
+  {
+    "id": "change-impact-01",
+    "repository": null,
+    "query": "if the API base URL env var changes where should I look",
+    "intent": "change-impact",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.0, 0.0, 0.15, 0.95, 0.0, 0.96, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/config/envLoader.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/configuration-reference.md", "grade": 2 }
+    ]
+  },
+  {
+    "id": "change-impact-02",
+    "repository": null,
+    "query": "if release publishing changes which files should I inspect",
+    "intent": "change-impact",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.1, 0.0, 0.0, 0.82, 0.0, 0.18, 0.99],
+    "relevantFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/release.yml", "grade": 3 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 2 }
+    ]
+  },
+  {
+    "id": "change-impact-03",
+    "repository": null,
+    "query": "if cache warmup behavior changes what should I inspect",
+    "intent": "change-impact",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.1, 0.92, 0.0, 0.1, 0.0, 0.94, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/cache/cacheWarmer.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/cache-operations.md", "grade": 2 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/cache-restore/action.yml", "grade": 1 }
+    ]
+  },
+  {
+    "id": "change-impact-04",
+    "repository": null,
+    "query": "if ranking fusion weights change where should I look",
+    "intent": "change-impact",
+    "failureBucket": "path-boost",
+    "embedding": [0.0, 0.0, 0.08, 0.98, 0.0, 0.0, 0.95, 0.1],
+    "relevantFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/search/queryPlanner.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/search-tuning.md", "grade": 2 }
+    ]
+  }
+]

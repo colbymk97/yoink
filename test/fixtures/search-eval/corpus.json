@@ -5,25 +5,29 @@
       "id": "ds-app",
       "owner": "acme",
       "repo": "yoink-app",
-      "branch": "main"
+      "branch": "main",
+      "repoType": "application"
     },
     {
       "id": "ds-docs",
       "owner": "acme",
       "repo": "yoink-docs",
-      "branch": "main"
+      "branch": "main",
+      "repoType": "documentation"
     },
     {
       "id": "ds-platform",
       "owner": "acme",
       "repo": "yoink-platform",
-      "branch": "main"
+      "branch": "main",
+      "repoType": "platform"
     },
     {
       "id": "ds-actions",
       "owner": "acme",
       "repo": "yoink-actions",
-      "branch": "main"
+      "branch": "main",
+      "repoType": "actions"
     }
   ],
   "chunks": [

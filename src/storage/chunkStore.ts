@@ -22,6 +22,11 @@ export interface DataSourceStats {
   totalTokens: number;
 }
 
+export interface ChunkSearchWeights {
+  filePathWeight?: number;
+  contentWeight?: number;
+}
+
 export class ChunkStore {
   private readonly insertStmt: Database.Statement;
   private readonly deleteByDataSourceStmt: Database.Statement;
@@ -118,13 +123,16 @@ export class ChunkStore {
     query: string,
     dataSourceIds: string[],
     topK: number,
+    weights: ChunkSearchWeights = {},
   ): Array<{ chunkId: string; bm25Score: number }> {
     const clean = sanitizeFtsQuery(query);
     if (!clean || dataSourceIds.length === 0) return [];
 
     const placeholders = dataSourceIds.map(() => '?').join(', ');
+    const filePathWeight = weights.filePathWeight ?? 5.0;
+    const contentWeight = weights.contentWeight ?? 1.0;
     const stmt = this.db.prepare(`
-      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, 5.0, 1.0) AS score
+      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, ${filePathWeight}, ${contentWeight}) AS score
       FROM chunks_fts
       WHERE chunks_fts MATCH ?
         AND data_source_id IN (${placeholders})
@@ -138,12 +146,18 @@ export class ChunkStore {
     return rows.map((r) => ({ chunkId: r.chunk_id, bm25Score: r.score }));
   }
 
-  searchFtsAll(query: string, topK: number): Array<{ chunkId: string; bm25Score: number }> {
+  searchFtsAll(
+    query: string,
+    topK: number,
+    weights: ChunkSearchWeights = {},
+  ): Array<{ chunkId: string; bm25Score: number }> {
     const clean = sanitizeFtsQuery(query);
     if (!clean) return [];
 
+    const filePathWeight = weights.filePathWeight ?? 5.0;
+    const contentWeight = weights.contentWeight ?? 1.0;
     const stmt = this.db.prepare(`
-      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, 5.0, 1.0) AS score
+      SELECT chunk_id, -bm25(chunks_fts, 0.0, 0.0, ${filePathWeight}, ${contentWeight}) AS score
       FROM chunks_fts
       WHERE chunks_fts MATCH ?
       ORDER BY score DESC

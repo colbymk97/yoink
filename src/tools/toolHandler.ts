@@ -6,13 +6,14 @@ import { ChunkStore } from '../storage/chunkStore';
 import { GitHubFetcher } from '../sources/github/githubFetcher';
 import { SETTING_KEYS } from '../config/settingsSchema';
 import { buildFileTree } from './fileTreeBuilder';
+import {
+  buildSearchPayload,
+  normalizeSearchPageSize,
+} from './searchPayload';
 
 const MAX_FILE_BYTES = 500_000;
 const MAX_FILES = 10;
 const MAX_TOTAL_BYTES = 2_000_000;
-const DEFAULT_SEARCH_PAGE_SIZE = 5;
-const MAX_SEARCH_PAGE_SIZE = 25;
-const SEARCH_SNIPPET_MAX_CHARS = 320;
 
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg',
@@ -423,7 +424,7 @@ export class ToolHandler {
       const configuredTopK = vscode.workspace
         .getConfiguration()
         .get<number>(SETTING_KEYS.SEARCH_TOP_K, 10);
-      const resolvedPageSize = normalizePageSize(pageSize);
+      const resolvedPageSize = normalizeSearchPageSize(pageSize);
       const decodedCursor = decodeCursor(cursor);
 
       if (decodedCursor && decodedCursor.query !== query) {
@@ -448,37 +449,24 @@ export class ToolHandler {
 
       const provider = await this.providerRegistry.getProvider();
       const results = await this.retriever.search(query, dataSourceIds, provider, fetchTopK);
-      const stableResults = sortResultsStable(results);
-      const page = stableResults.slice(offset, offset + resolvedPageSize + 1);
-      const pageResults = page.slice(0, resolvedPageSize);
-      const hasMore = page.length > resolvedPageSize;
-      const nextCursor = hasMore
-        ? encodeCursor({
-          query,
-          scopeKey,
-          offset: offset + resolvedPageSize,
-        })
-        : null;
-      const payload = {
-        searchedRepositories: searchedRepos ?? '',
-        pageSize: resolvedPageSize,
-        resultCount: pageResults.length,
-        hasMore,
-        nextCursor,
-        results: pageResults.map((result) => {
-          const ds = this.configManager.getDataSource(result.chunk.dataSourceId);
-          return {
-            id: result.chunk.id,
-            repository: ds ? `${ds.owner}/${ds.repo}` : 'unknown',
-            filePath: result.chunk.filePath,
-            startLine: result.chunk.startLine,
-            endLine: result.chunk.endLine,
-            score: Number((-result.distance).toFixed(6)),
-            snippet: toSnippet(result.chunk.content),
-            resultType: classifyResultType(result.chunk.filePath),
-          };
-        }),
-      };
+      const nextCursor = encodeCursor({
+        query,
+        scopeKey,
+        offset: offset + resolvedPageSize,
+      });
+      const payload = buildSearchPayload(
+        results,
+        (chunk) => {
+          const ds = this.configManager.getDataSource(chunk.dataSourceId);
+          return ds ? `${ds.owner}/${ds.repo}` : 'unknown';
+        },
+        {
+          searchedRepositories: searchedRepos ?? '',
+          pageSize: resolvedPageSize,
+          offset,
+          nextCursor,
+        },
+      );
 
       return new vscode.LanguageModelToolResult([
         new vscode.LanguageModelTextPart(JSON.stringify(payload, null, 2)),
@@ -497,40 +485,6 @@ type SearchCursor = {
   scopeKey: string;
   offset: number;
 };
-
-function normalizePageSize(pageSize?: number): number {
-  if (!Number.isFinite(pageSize)) return DEFAULT_SEARCH_PAGE_SIZE;
-  return Math.max(1, Math.min(MAX_SEARCH_PAGE_SIZE, Math.floor(pageSize as number)));
-}
-
-function toSnippet(content: string): string {
-  return content.replace(/\s+/g, ' ').trim().slice(0, SEARCH_SNIPPET_MAX_CHARS);
-}
-
-function classifyResultType(filePath: string): string {
-  if (filePath.includes('.github/workflows/')) return 'workflow';
-  if (filePath.endsWith('action.yml') || filePath.endsWith('action.yaml')) return 'action';
-  if (/\.(md|mdx)$/i.test(filePath)) return 'documentation';
-  if (/(^|\/)(package\.json|tsconfig\.json|eslint\.config|\.eslintrc|\.prettierrc)/i.test(filePath)) {
-    return 'config';
-  }
-  return 'code';
-}
-
-function sortResultsStable(
-  results: import('../retrieval/retriever').RetrievalResult[],
-): import('../retrieval/retriever').RetrievalResult[] {
-  return [...results].sort((a, b) => {
-    const scoreDiff = b.distance - a.distance;
-    if (scoreDiff !== 0) return scoreDiff;
-    return (
-      a.chunk.filePath.localeCompare(b.chunk.filePath) ||
-      a.chunk.startLine - b.chunk.startLine ||
-      a.chunk.endLine - b.chunk.endLine ||
-      a.chunk.id.localeCompare(b.chunk.id)
-    );
-  });
-}
 
 function buildScopeKey(dataSourceIds: string[]): string {
   return [...dataSourceIds].sort().join(',');

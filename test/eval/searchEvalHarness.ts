@@ -1,65 +1,23 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { EmbeddingProvider } from '../../src/embedding/embeddingProvider';
-import {
-  RetrievalDiagnostics,
-  RetrievalMode,
-  RetrievalResult,
-  Retriever,
-} from '../../src/retrieval/retriever';
+import { classifySearchResultType } from '../../src/tools/searchPayload';
+import { RetrievalMode, RetrievalResult, RetrievalTuning, Retriever } from '../../src/retrieval/retriever';
 import { DataSourceStore } from '../../src/storage/dataSourceStore';
 import { EmbeddingStore } from '../../src/storage/embeddingStore';
-import { ChunkRecord, ChunkStore } from '../../src/storage/chunkStore';
+import { ChunkStore } from '../../src/storage/chunkStore';
+import {
+  buildRepoMaps,
+  loadSearchEvalDataset as loadDataset,
+  makeSearchEvalProvider,
+  SearchEvalDataset,
+  SearchEvalFailureBucket,
+  SearchEvalIntent,
+  SearchEvalQuery,
+  SearchEvalRepoType,
+} from './searchEvalDataset';
 
-export type SearchEvalIntent =
-  | 'semantic-paraphrase'
-  | 'identifier-exact'
-  | 'path-structure'
-  | 'docs-howto'
-  | 'workflow-action';
-
-export interface SearchEvalDataSource {
-  id: string;
-  owner: string;
-  repo: string;
-  branch: string;
-}
-
-export interface SearchEvalChunk extends ChunkRecord {
-  embedding: number[];
-}
-
-export interface SearchEvalCorpus {
-  dimensions: number;
-  dataSources: SearchEvalDataSource[];
-  chunks: SearchEvalChunk[];
-}
-
-export interface SearchEvalRelevantFile {
-  repository: string;
-  filePath: string;
-  grade: number;
-}
-
-export interface SearchEvalRelevantChunk {
-  chunkId: string;
-  grade: number;
-}
-
-export interface SearchEvalQuery {
-  id: string;
-  repository: string | null;
-  query: string;
-  intent: SearchEvalIntent;
-  embedding: number[];
-  relevantFiles: SearchEvalRelevantFile[];
-  relevantChunks?: SearchEvalRelevantChunk[];
-}
-
-export interface SearchEvalDataset {
-  corpus: SearchEvalCorpus;
-  queries: SearchEvalQuery[];
-}
+export type { SearchEvalDataset } from './searchEvalDataset';
+export { loadSearchEvalDataset, makeSearchEvalProvider } from './searchEvalDataset';
 
 export interface SearchEvalMetrics {
   recallAt1: number;
@@ -79,7 +37,7 @@ export interface SearchEvalFileResult {
   startLine: number;
   endLine: number;
   score: number;
-  diagnostics?: RetrievalDiagnostics;
+  diagnostics?: RetrievalResult['diagnostics'];
 }
 
 export interface SearchEvalQueryRun {
@@ -87,21 +45,33 @@ export interface SearchEvalQueryRun {
   repository: string | null;
   query: string;
   intent: SearchEvalIntent;
+  failureBucket: SearchEvalFailureBucket | 'unclassified';
   metrics: SearchEvalMetrics;
   chunkHitAt5: boolean | null;
+  duplicateFileCrowdingCount: number;
+  topResultType: string | null;
+  topResultRepoType: SearchEvalRepoType | null;
   topFiles: SearchEvalFileResult[];
 }
 
 export interface SearchEvalModeSummary {
   overall: SearchEvalMetrics;
   byIntent: Record<SearchEvalIntent, SearchEvalMetrics>;
+  byFailureBucket: Record<string, SearchEvalMetrics>;
+  byRepoType: Record<string, SearchEvalMetrics>;
   queries: SearchEvalQueryRun[];
+}
+
+export interface SearchEvalWeaknessReport {
+  topFailedIntents: Array<{ intent: string; recallAt1Gap: number }>;
+  topFailedRepositories: Array<{ repository: string; misses: number }>;
+  topMisleadingResultTypes: Array<{ resultType: string; count: number }>;
+  topPathPenaltyQueries: Array<{ queryId: string; recallAt1Gap: number }>;
 }
 
 export interface SearchEvalSummary {
   generatedAt: string;
   artifactPath: string;
-  topK: number;
   dataset: {
     dimensions: number;
     dataSourceCount: number;
@@ -109,8 +79,17 @@ export interface SearchEvalSummary {
     chunkCount: number;
     queryCount: number;
     queryCountByIntent: Record<SearchEvalIntent, number>;
+    repoCountByType: Record<string, number>;
   };
-  modes: Record<RetrievalMode, SearchEvalModeSummary>;
+  modes: Record<string, SearchEvalModeSummary>;
+  weaknessReport: SearchEvalWeaknessReport;
+}
+
+export interface SearchEvalRunConfig {
+  label: string;
+  mode: RetrievalMode;
+  topK?: number;
+  tuning?: Partial<RetrievalTuning>;
 }
 
 const INTENTS: SearchEvalIntent[] = [
@@ -119,30 +98,26 @@ const INTENTS: SearchEvalIntent[] = [
   'path-structure',
   'docs-howto',
   'workflow-action',
+  'implementation-location',
+  'change-impact',
 ];
 
-const MODES: RetrievalMode[] = [
-  'vector-only',
-  'fts-only',
-  'hybrid-no-path',
-  'hybrid',
+const DEFAULT_RUNS: SearchEvalRunConfig[] = [
+  { label: 'vector-only', mode: 'vector-only' },
+  { label: 'fts-only', mode: 'fts-only' },
+  { label: 'hybrid-no-path', mode: 'hybrid-no-path' },
+  { label: 'hybrid', mode: 'hybrid' },
 ];
 
-const TOP_K = 10;
+const DEFAULT_TOP_K = 10;
 
-const CORPUS_PATH = resolve(__dirname, '../fixtures/search-eval/corpus.json');
-const QUERIES_PATH = resolve(__dirname, '../fixtures/search-eval/queries.json');
-const ARTIFACT_PATH = resolve(__dirname, '../../test-results/search-relevance-summary.json');
-
-export function loadSearchEvalDataset(): SearchEvalDataset {
-  const corpus = parseCorpus(JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as unknown);
-  const queries = parseQueries(JSON.parse(readFileSync(QUERIES_PATH, 'utf8')) as unknown, corpus.dimensions);
-
-  return { corpus, queries };
-}
+export const SEARCH_RELEVANCE_ARTIFACT_PATH = resolve(
+  __dirname,
+  '../../test-results/search-relevance-summary.json',
+);
 
 export function seedSearchEvalCorpus(
-  corpus: SearchEvalCorpus,
+  corpus: SearchEvalDataset['corpus'],
   stores: {
     dataSourceStore: DataSourceStore;
     chunkStore: ChunkStore;
@@ -159,42 +134,19 @@ export function seedSearchEvalCorpus(
   }
 }
 
-export function makeSearchEvalProvider(dataset: SearchEvalDataset): EmbeddingProvider {
-  const queryEmbeddings = new Map(dataset.queries.map((query) => [query.query, query.embedding]));
-
-  return {
-    id: 'search-eval-fixture',
-    maxBatchSize: 100,
-    maxInputTokens: 16000,
-    dimensions: dataset.corpus.dimensions,
-    embed: async (texts: string[]) =>
-      texts.map((text) => {
-        const embedding = queryEmbeddings.get(text);
-        if (!embedding) {
-          throw new Error(`Missing search-eval embedding for query: ${text}`);
-        }
-        return embedding;
-      }),
-    countTokens: (text: string) => Math.ceil(text.length / 4),
-  };
-}
-
 export async function runSearchEvaluation(
   retriever: Retriever,
-  dataset: SearchEvalDataset,
+  dataset: SearchEvalDataset = loadDataset(),
+  runConfigs: SearchEvalRunConfig[] = DEFAULT_RUNS,
 ): Promise<SearchEvalSummary> {
   const provider = makeSearchEvalProvider(dataset);
-  const repoByDataSourceId = new Map(
-    dataset.corpus.dataSources.map((source) => [source.id, `${source.owner}/${source.repo}`]),
-  );
-  const dataSourceIdByRepo = new Map(
-    dataset.corpus.dataSources.map((source) => [`${source.owner}/${source.repo}`, source.id]),
-  );
+  const { repoByDataSourceId, dataSourceIdByRepo, repoTypeByRepo } = buildRepoMaps(dataset);
 
   const modes = Object.fromEntries(
     await Promise.all(
-      MODES.map(async (mode) => {
+      runConfigs.map(async (runConfig) => {
         const queries: SearchEvalQueryRun[] = [];
+        const topK = runConfig.topK ?? DEFAULT_TOP_K;
 
         for (const query of dataset.queries) {
           const dataSourceIds = resolveQueryScope(query.repository, dataSourceIdByRepo);
@@ -202,42 +154,68 @@ export async function runSearchEvaluation(
             query.query,
             dataSourceIds,
             provider,
-            TOP_K,
-            { mode, includeDiagnostics: true },
+            topK,
+            {
+              mode: runConfig.mode,
+              includeDiagnostics: true,
+              tuning: runConfig.tuning,
+            },
           );
           const topFiles = collapseResultsToFiles(rawResults, repoByDataSourceId);
-          const metrics = scoreFileRanking(query, topFiles);
+          const metrics = scoreFileRanking(query, topFiles, topK);
+          const topResult = topFiles[0];
           queries.push({
             id: query.id,
             repository: query.repository,
             query: query.query,
             intent: query.intent,
+            failureBucket: query.failureBucket ?? 'unclassified',
             metrics,
             chunkHitAt5: scoreChunkHitAt5(query, rawResults),
-            topFiles: topFiles.slice(0, TOP_K),
+            duplicateFileCrowdingCount: computeDuplicateFileCrowding(rawResults, topK),
+            topResultType: topResult ? classifySearchResultType(topResult.filePath) : null,
+            topResultRepoType: topResult
+              ? (repoTypeByRepo.get(topResult.repository) ?? null)
+              : null,
+            topFiles: topFiles.slice(0, topK),
           });
         }
 
-        const summary: SearchEvalModeSummary = {
-          overall: averageMetrics(queries),
-          byIntent: Object.fromEntries(
-            INTENTS.map((intent) => [
-              intent,
-              averageMetrics(queries.filter((query) => query.intent === intent)),
-            ]),
-          ) as Record<SearchEvalIntent, SearchEvalMetrics>,
-          queries,
-        };
-
-        return [mode, summary] as const;
+        return [
+          runConfig.label,
+          {
+            overall: averageMetrics(queries),
+            byIntent: buildGroupedMetrics(
+              INTENTS,
+              queries,
+              (queryRun) => queryRun.intent,
+            ),
+            byFailureBucket: buildGroupedMetricsFromValues(
+              uniqueValues(queries.map((queryRun) => queryRun.failureBucket)),
+              queries,
+              (queryRun) => queryRun.failureBucket,
+            ),
+            byRepoType: buildGroupedMetricsFromValues(
+              uniqueValues([...repoTypeByRepo.values()]),
+              queries,
+              (queryRun) => {
+                const firstRelevant = dataset.queries
+                  .find((query) => query.id === queryRun.id)
+                  ?.relevantFiles[0];
+                if (!firstRelevant) return 'unknown';
+                return repoTypeByRepo.get(firstRelevant.repository) ?? 'unknown';
+              },
+            ),
+            queries,
+          } satisfies SearchEvalModeSummary,
+        ] as const;
       }),
     ),
-  ) as Record<RetrievalMode, SearchEvalModeSummary>;
+  ) as Record<string, SearchEvalModeSummary>;
 
   const summary: SearchEvalSummary = {
     generatedAt: new Date().toISOString(),
-    artifactPath: ARTIFACT_PATH,
-    topK: TOP_K,
+    artifactPath: SEARCH_RELEVANCE_ARTIFACT_PATH,
     dataset: {
       dimensions: dataset.corpus.dimensions,
       dataSourceCount: dataset.corpus.dataSources.length,
@@ -250,12 +228,19 @@ export async function runSearchEvaluation(
           dataset.queries.filter((query) => query.intent === intent).length,
         ]),
       ) as Record<SearchEvalIntent, number>,
+      repoCountByType: Object.fromEntries(
+        uniqueValues(dataset.corpus.dataSources.map((source) => source.repoType)).map((repoType) => [
+          repoType,
+          dataset.corpus.dataSources.filter((source) => source.repoType === repoType).length,
+        ]),
+      ),
     },
     modes,
+    weaknessReport: buildWeaknessReport(modes.hybrid, modes['hybrid-no-path'], dataset),
   };
 
-  mkdirSync(dirname(ARTIFACT_PATH), { recursive: true });
-  writeFileSync(ARTIFACT_PATH, JSON.stringify(summary, null, 2));
+  mkdirSync(dirname(SEARCH_RELEVANCE_ARTIFACT_PATH), { recursive: true });
+  writeFileSync(SEARCH_RELEVANCE_ARTIFACT_PATH, JSON.stringify(summary, null, 2));
 
   return summary;
 }
@@ -301,25 +286,35 @@ export function formatSearchEvalReport(summary: SearchEvalSummary): string {
   lines.push(`artifact: ${summary.artifactPath}`);
   lines.push('');
   lines.push('overall');
-  lines.push(formatMetricTable(MODES, summary.modes, (modeSummary) => modeSummary.overall));
+  lines.push(formatMetricTable(Object.keys(summary.modes), summary.modes, (modeSummary) => modeSummary.overall));
 
   for (const intent of INTENTS) {
+    if (!summary.dataset.queryCountByIntent[intent]) continue;
     lines.push('');
     lines.push(`${intent} (${summary.dataset.queryCountByIntent[intent]} queries)`);
-    lines.push(formatMetricTable(MODES, summary.modes, (modeSummary) => modeSummary.byIntent[intent]));
+    lines.push(formatMetricTable(Object.keys(summary.modes), summary.modes, (modeSummary) => modeSummary.byIntent[intent]));
+  }
+
+  lines.push('');
+  lines.push('weaknesses');
+  for (const item of summary.weaknessReport.topFailedIntents) {
+    lines.push(`- intent: ${item.intent} (R@1 gap ${item.recallAt1Gap.toFixed(3)})`);
+  }
+  for (const item of summary.weaknessReport.topPathPenaltyQueries) {
+    lines.push(`- path penalty: ${item.queryId} (R@1 gap ${item.recallAt1Gap.toFixed(3)})`);
   }
 
   return lines.join('\n');
 }
 
 function formatMetricTable(
-  modes: RetrievalMode[],
-  summaries: Record<RetrievalMode, SearchEvalModeSummary>,
+  modeLabels: string[],
+  summaries: Record<string, SearchEvalModeSummary>,
   pickMetrics: (summary: SearchEvalModeSummary) => SearchEvalMetrics,
 ): string {
   const rows = [
     ['mode', 'R@1', 'R@3', 'R@5', 'R@10', 'MRR@10', 'nDCG@10', 'S@5'],
-    ...modes.map((mode) => {
+    ...modeLabels.map((mode) => {
       const metrics = pickMetrics(summaries[mode]);
       return [
         mode,
@@ -350,20 +345,21 @@ function formatMetric(value: number): string {
 function scoreFileRanking(
   query: SearchEvalQuery,
   results: SearchEvalFileResult[],
+  topK: number,
 ): SearchEvalMetrics {
   const relevant = new Map(
     query.relevantFiles.map((file) => [toFileKey(file.repository, file.filePath), file.grade]),
   );
-  const relevantCount = relevant.size;
-  const top10 = results.slice(0, TOP_K);
+  const relevantCount = relevant.size || 1;
+  const top = results.slice(0, topK);
   const recallAt = (limit: number) =>
-    top10
+    top
       .slice(0, limit)
       .filter((result) => relevant.has(toFileKey(result.repository, result.filePath)))
       .length / relevantCount;
 
   const firstRelevantRank =
-    top10.find((result) => relevant.has(toFileKey(result.repository, result.filePath)))?.rank ?? null;
+    top.find((result) => relevant.has(toFileKey(result.repository, result.filePath)))?.rank ?? null;
 
   return {
     recallAt1: recallAt(1),
@@ -371,9 +367,9 @@ function scoreFileRanking(
     recallAt5: recallAt(5),
     recallAt10: recallAt(10),
     mrrAt10: firstRelevantRank ? 1 / firstRelevantRank : 0,
-    ndcgAt10: scoreNdcgAt10(query, top10),
+    ndcgAt10: scoreNdcgAt(query, top, topK),
     successAt5:
-      top10
+      top
         .slice(0, 5)
         .some((result) => relevant.has(toFileKey(result.repository, result.filePath)))
         ? 1
@@ -381,19 +377,23 @@ function scoreFileRanking(
   };
 }
 
-function scoreNdcgAt10(query: SearchEvalQuery, results: SearchEvalFileResult[]): number {
+function scoreNdcgAt(
+  query: SearchEvalQuery,
+  results: SearchEvalFileResult[],
+  topK: number,
+): number {
   const grades = new Map(
     query.relevantFiles.map((file) => [toFileKey(file.repository, file.filePath), file.grade]),
   );
 
-  const dcg = results.slice(0, TOP_K).reduce((sum, result, index) => {
+  const dcg = results.slice(0, topK).reduce((sum, result, index) => {
     const grade = grades.get(toFileKey(result.repository, result.filePath)) ?? 0;
     return sum + ((2 ** grade) - 1) / Math.log2(index + 2);
   }, 0);
 
   const idcg = [...grades.values()]
     .sort((a, b) => b - a)
-    .slice(0, TOP_K)
+    .slice(0, topK)
     .reduce((sum, grade, index) => sum + ((2 ** grade) - 1) / Math.log2(index + 2), 0);
 
   return idcg === 0 ? 0 : dcg / idcg;
@@ -419,6 +419,27 @@ function averageMetrics(queries: SearchEvalQueryRun[]): SearchEvalMetrics {
   };
 }
 
+function buildGroupedMetrics<T extends string>(
+  values: readonly T[],
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => T,
+): Record<T, SearchEvalMetrics> {
+  return Object.fromEntries(
+    values.map((value) => [
+      value,
+      averageMetrics(queries.filter((query) => pick(query) === value)),
+    ]),
+  ) as Record<T, SearchEvalMetrics>;
+}
+
+function buildGroupedMetricsFromValues<T extends string>(
+  values: readonly T[],
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => T,
+): Record<T, SearchEvalMetrics> {
+  return buildGroupedMetrics(values, queries, pick);
+}
+
 function sumMetric(
   queries: SearchEvalQueryRun[],
   pick: (query: SearchEvalQueryRun) => number,
@@ -442,154 +463,79 @@ function toFileKey(repository: string, filePath: string): string {
   return `${repository}:${filePath}`;
 }
 
-function parseCorpus(input: unknown): SearchEvalCorpus {
-  if (!isRecord(input)) {
-    throw new Error('search-eval corpus must be an object');
-  }
-
-  const dimensions = asNumber(input.dimensions, 'corpus.dimensions');
-  const dataSources = asArray(input.dataSources, 'corpus.dataSources').map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`corpus.dataSources[${index}] must be an object`);
+function computeDuplicateFileCrowding(results: RetrievalResult[], topK: number): number {
+  const seen = new Set<string>();
+  let duplicates = 0;
+  for (const result of results.slice(0, topK)) {
+    const key = `${result.chunk.dataSourceId}:${result.chunk.filePath}`;
+    if (seen.has(key)) {
+      duplicates++;
+      continue;
     }
-    return {
-      id: asString(entry.id, `corpus.dataSources[${index}].id`),
-      owner: asString(entry.owner, `corpus.dataSources[${index}].owner`),
-      repo: asString(entry.repo, `corpus.dataSources[${index}].repo`),
-      branch: asString(entry.branch, `corpus.dataSources[${index}].branch`),
-    };
-  });
-  const chunks = asArray(input.chunks, 'corpus.chunks').map((entry, index) =>
-    parseChunk(entry, index, dimensions),
-  );
-
-  return { dimensions, dataSources, chunks };
+    seen.add(key);
+  }
+  return duplicates;
 }
 
-function parseQueries(input: unknown, dimensions: number): SearchEvalQuery[] {
-  return asArray(input, 'queries').map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`queries[${index}] must be an object`);
-    }
+function buildWeaknessReport(
+  hybrid: SearchEvalModeSummary,
+  hybridNoPath: SearchEvalModeSummary | undefined,
+  dataset: SearchEvalDataset,
+): SearchEvalWeaknessReport {
+  const topFailedIntents = Object.entries(hybrid.byIntent)
+    .map(([intent, metrics]) => ({ intent, recallAt1Gap: 1 - metrics.recallAt1 }))
+    .sort((a, b) => b.recallAt1Gap - a.recallAt1Gap)
+    .slice(0, 3);
 
-    return {
-      id: asString(entry.id, `queries[${index}].id`),
-      repository:
-        entry.repository === null
-          ? null
-          : asString(entry.repository, `queries[${index}].repository`),
-      query: asString(entry.query, `queries[${index}].query`),
-      intent: asIntent(entry.intent, `queries[${index}].intent`),
-      embedding: asEmbedding(entry.embedding, `queries[${index}].embedding`, dimensions),
-      relevantFiles: asArray(entry.relevantFiles, `queries[${index}].relevantFiles`).map(
-        (file, fileIndex) => parseRelevantFile(file, index, fileIndex),
-      ),
-      relevantChunks:
-        entry.relevantChunks === undefined
-          ? undefined
-          : asArray(entry.relevantChunks, `queries[${index}].relevantChunks`).map(
-            (chunk, chunkIndex) => parseRelevantChunk(chunk, index, chunkIndex),
-          ),
-    };
-  });
-}
-
-function parseChunk(input: unknown, index: number, dimensions: number): SearchEvalChunk {
-  if (!isRecord(input)) {
-    throw new Error(`corpus.chunks[${index}] must be an object`);
+  const repositoryMisses = new Map<string, number>();
+  for (const queryRun of hybrid.queries) {
+    const primaryRelevant = dataset.queries.find((query) => query.id === queryRun.id)?.relevantFiles[0];
+    if (!primaryRelevant) continue;
+    if (queryRun.metrics.recallAt1 >= 1) continue;
+    repositoryMisses.set(
+      primaryRelevant.repository,
+      (repositoryMisses.get(primaryRelevant.repository) ?? 0) + 1,
+    );
   }
 
+  const misleadingTypes = new Map<string, number>();
+  for (const queryRun of hybrid.queries) {
+    if (!queryRun.topResultType) continue;
+    if (queryRun.metrics.recallAt1 >= 1) continue;
+    misleadingTypes.set(
+      queryRun.topResultType,
+      (misleadingTypes.get(queryRun.topResultType) ?? 0) + 1,
+    );
+  }
+
+  const topPathPenaltyQueries = hybridNoPath
+    ? hybrid.queries
+      .map((queryRun) => {
+        const noPath = hybridNoPath.queries.find((candidate) => candidate.id === queryRun.id);
+        return {
+          queryId: queryRun.id,
+          recallAt1Gap: (noPath?.metrics.recallAt1 ?? 0) - queryRun.metrics.recallAt1,
+        };
+      })
+      .filter((item) => item.recallAt1Gap > 0)
+      .sort((a, b) => b.recallAt1Gap - a.recallAt1Gap)
+      .slice(0, 5)
+    : [];
+
   return {
-    id: asString(input.id, `corpus.chunks[${index}].id`),
-    dataSourceId: asString(input.dataSourceId, `corpus.chunks[${index}].dataSourceId`),
-    filePath: asString(input.filePath, `corpus.chunks[${index}].filePath`),
-    startLine: asNumber(input.startLine, `corpus.chunks[${index}].startLine`),
-    endLine: asNumber(input.endLine, `corpus.chunks[${index}].endLine`),
-    tokenCount: asNumber(input.tokenCount, `corpus.chunks[${index}].tokenCount`),
-    content: asString(input.content, `corpus.chunks[${index}].content`),
-    embedding: asEmbedding(input.embedding, `corpus.chunks[${index}].embedding`, dimensions),
+    topFailedIntents,
+    topFailedRepositories: [...repositoryMisses.entries()]
+      .map(([repository, misses]) => ({ repository, misses }))
+      .sort((a, b) => b.misses - a.misses)
+      .slice(0, 5),
+    topMisleadingResultTypes: [...misleadingTypes.entries()]
+      .map(([resultType, count]) => ({ resultType, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+    topPathPenaltyQueries,
   };
 }
 
-function parseRelevantFile(
-  input: unknown,
-  queryIndex: number,
-  fileIndex: number,
-): SearchEvalRelevantFile {
-  if (!isRecord(input)) {
-    throw new Error(`queries[${queryIndex}].relevantFiles[${fileIndex}] must be an object`);
-  }
-
-  return {
-    repository: asString(
-      input.repository,
-      `queries[${queryIndex}].relevantFiles[${fileIndex}].repository`,
-    ),
-    filePath: asString(
-      input.filePath,
-      `queries[${queryIndex}].relevantFiles[${fileIndex}].filePath`,
-    ),
-    grade: asNumber(input.grade, `queries[${queryIndex}].relevantFiles[${fileIndex}].grade`),
-  };
-}
-
-function parseRelevantChunk(
-  input: unknown,
-  queryIndex: number,
-  chunkIndex: number,
-): SearchEvalRelevantChunk {
-  if (!isRecord(input)) {
-    throw new Error(`queries[${queryIndex}].relevantChunks[${chunkIndex}] must be an object`);
-  }
-
-  return {
-    chunkId: asString(
-      input.chunkId,
-      `queries[${queryIndex}].relevantChunks[${chunkIndex}].chunkId`,
-    ),
-    grade: asNumber(input.grade, `queries[${queryIndex}].relevantChunks[${chunkIndex}].grade`),
-  };
-}
-
-function asIntent(input: unknown, label: string): SearchEvalIntent {
-  const value = asString(input, label);
-  if (!INTENTS.includes(value as SearchEvalIntent)) {
-    throw new Error(`${label} must be one of ${INTENTS.join(', ')}`);
-  }
-  return value as SearchEvalIntent;
-}
-
-function asEmbedding(input: unknown, label: string, dimensions: number): number[] {
-  const embedding = asArray(input, label).map((value, index) =>
-    asNumber(value, `${label}[${index}]`),
-  );
-  if (embedding.length !== dimensions) {
-    throw new Error(`${label} must have ${dimensions} dimensions, got ${embedding.length}`);
-  }
-  return embedding;
-}
-
-function asArray(input: unknown, label: string): unknown[] {
-  if (!Array.isArray(input)) {
-    throw new Error(`${label} must be an array`);
-  }
-  return input;
-}
-
-function asString(input: unknown, label: string): string {
-  if (typeof input !== 'string') {
-    throw new Error(`${label} must be a string`);
-  }
-  return input;
-}
-
-function asNumber(input: unknown, label: string): number {
-  if (typeof input !== 'number' || Number.isNaN(input)) {
-    throw new Error(`${label} must be a number`);
-  }
-  return input;
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === 'object' && input !== null;
+function uniqueValues<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }

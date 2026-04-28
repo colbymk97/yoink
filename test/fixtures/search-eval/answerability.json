@@ -1,0 +1,284 @@
+[
+  {
+    "id": "answer-01",
+    "repository": null,
+    "query": "where do we turn a raw login token into a browser session",
+    "question": "How is a raw login token turned into a browser session?",
+    "intent": "semantic-paraphrase",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.98, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "goldAnswer": "The raw token is exchanged into a session in src/auth/sessionManager.ts by exchangeSessionCookie, which creates a session from the bearer token. tokenVerifier.ts is related validation context, but sessionManager.ts is the main implementation.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 3 },
+      { "repository": "acme/yoink-app", "filePath": "src/security/tokenVerifier.ts", "grade": 1 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/auth/sessionManager.ts",
+        "chunkId": "app-auth-session-1",
+        "mustMention": ["exchangeSessionCookie", "createSessionFromBearer"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-02",
+    "repository": "acme/yoink-app",
+    "query": "how do failed HTTP calls back off before retrying",
+    "question": "What retry backoff behavior is implemented for failed HTTP calls?",
+    "intent": "semantic-paraphrase",
+    "failureBucket": "snippet-insufficient",
+    "embedding": [0.05, 0.98, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "goldAnswer": "Retry timing is computed in src/http/retryPolicy.ts. The code uses DEFAULT_BACKOFF_MS values of 100, 250, and 500, then falls back to 1000 after those predefined attempts.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/http/retryPolicy.ts", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/http/retryPolicy.ts",
+        "chunkId": "app-http-retry",
+        "mustMention": ["DEFAULT_BACKOFF_MS", "1000"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-03",
+    "repository": null,
+    "query": "what merges keyword matches with embedding hits",
+    "question": "Where are keyword results and semantic results blended together?",
+    "intent": "semantic-paraphrase",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.0, 0.08, 0.98, 0.0, 0.0, 0.0, 0.0],
+    "goldAnswer": "The blending happens in src/search/queryPlanner.ts via blendSignals and related ranking constants like RRF_K and PATH_WEIGHT. docs/search-tuning.md explains the same design at a documentation level.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/search/queryPlanner.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/search-tuning.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/search/queryPlanner.ts",
+        "chunkId": "app-search-planner",
+        "mustMention": ["blendSignals", "RRF_K", "PATH_WEIGHT"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-04",
+    "repository": "acme/yoink-docs",
+    "query": "how do I connect a repository after GitHub auth",
+    "question": "What does the documentation say about connecting a repository after GitHub authentication?",
+    "intent": "docs-howto",
+    "failureBucket": "snippet-insufficient",
+    "embedding": [0.82, 0.05, 0.0, 0.0, 0.1, 0.0, 0.98, 0.0],
+    "goldAnswer": "The authentication guide says to connect GitHub, paste the repository URL, approve access, and then add the data source after sign-in completes.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-docs", "filePath": "docs/authentication-guide.md", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-docs",
+        "filePath": "docs/authentication-guide.md",
+        "chunkId": "docs-auth-guide",
+        "mustMention": ["paste a repository URL", "add the data source"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-05",
+    "repository": "acme/yoink-docs",
+    "query": "where is the rollback checklist documented",
+    "question": "Which document covers rollback and rollout steps for deployments?",
+    "intent": "docs-howto",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.05, 0.2, 0.0, 0.0, 0.8, 0.0, 0.97, 0.25],
+    "goldAnswer": "The deployment runbook in docs/deployment/runbook.md covers rollout, smoke tests, rollback, and canary validation.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-docs", "filePath": "docs/deployment/runbook.md", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-docs",
+        "filePath": "docs/deployment/runbook.md",
+        "chunkId": "docs-deploy-runbook",
+        "mustMention": ["rollout", "rollback", "canary"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-06",
+    "repository": null,
+    "query": "if the API base URL env var changes where should I look",
+    "question": "If the API base URL environment variable changes, which files should a maintainer inspect first?",
+    "intent": "change-impact",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.0, 0.0, 0.15, 0.95, 0.0, 0.96, 0.0],
+    "goldAnswer": "Inspect src/config/envLoader.ts first because it defines YOINK_API_BASE_URL and loads environment overrides. Also inspect docs/configuration-reference.md because it documents the endpoint override behavior.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/config/envLoader.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/configuration-reference.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/config/envLoader.ts",
+        "chunkId": "app-config-env",
+        "mustMention": ["YOINK_API_BASE_URL", "loadEnvironmentOverrides"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-07",
+    "repository": null,
+    "query": "if release publishing changes which files should I inspect",
+    "question": "What files should I inspect if the extension release publishing flow changes?",
+    "intent": "change-impact",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.0, 0.1, 0.0, 0.0, 0.82, 0.0, 0.18, 0.99],
+    "goldAnswer": "Inspect .github/workflows/release.yml for the release job and actions/publish-extension/action.yml for the reusable publish step used by that flow.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/release.yml", "grade": 3 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-platform",
+        "filePath": ".github/workflows/release.yml",
+        "chunkId": "workflow-release",
+        "mustMention": ["Release Extension", "publish"]
+      },
+      {
+        "repository": "acme/yoink-actions",
+        "filePath": "actions/publish-extension/action.yml",
+        "chunkId": "action-publish-extension",
+        "mustMention": ["marketplaceToken", "vsixPath"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-08",
+    "repository": "acme/yoink-actions",
+    "query": "action that prepares yoink before other steps",
+    "question": "Which reusable action prepares Yoink before later workflow steps, and what key input does it require?",
+    "intent": "workflow-action",
+    "failureBucket": "answerability-gap",
+    "embedding": [0.58, 0.0, 0.0, 0.0, 0.42, 0.0, 0.3, 0.97],
+    "goldAnswer": "actions/setup-yoink/action.yml is the setup action. It requires at least apiKey and repoUrlInput, and produces a configPath output.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-actions", "filePath": "actions/setup-yoink/action.yml", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-actions",
+        "filePath": "actions/setup-yoink/action.yml",
+        "chunkId": "action-setup-yoink",
+        "mustMention": ["apiKey", "repoUrlInput", "configPath"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-09",
+    "repository": null,
+    "query": "which job refreshes the index on a schedule overnight",
+    "question": "Which workflow performs a scheduled overnight index refresh?",
+    "intent": "workflow-action",
+    "failureBucket": "path-boost",
+    "embedding": [0.0, 0.05, 0.22, 0.58, 0.42, 0.0, 0.1, 0.97],
+    "goldAnswer": "The scheduled refresh is in .github/workflows/nightly-index-sync.yml, which defines the Nightly Index Sync workflow with a cron schedule and a sync job.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/nightly-index-sync.yml", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-platform",
+        "filePath": ".github/workflows/nightly-index-sync.yml",
+        "chunkId": "workflow-nightly-sync",
+        "mustMention": ["Nightly Index Sync", "schedule", "sync-index.sh"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-10",
+    "repository": "acme/yoink-app",
+    "query": "where is retry delay calculated",
+    "question": "Where would you point an engineer who needs to change retry delay logic?",
+    "intent": "implementation-location",
+    "failureBucket": "task-navigation",
+    "embedding": [0.05, 0.98, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "goldAnswer": "Point them to src/http/retryPolicy.ts because it defines DEFAULT_BACKOFF_MS and computeRetryDelay, which together control retry timing.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/http/retryPolicy.ts", "grade": 3 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/http/retryPolicy.ts",
+        "chunkId": "app-http-retry",
+        "mustMention": ["computeRetryDelay", "DEFAULT_BACKOFF_MS"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-11",
+    "repository": null,
+    "query": "if cache warmup behavior changes what should I inspect",
+    "question": "If cache warmup behavior changes, which code and docs are the best first places to inspect?",
+    "intent": "change-impact",
+    "failureBucket": "duplicate-crowding",
+    "embedding": [0.0, 0.1, 0.92, 0.0, 0.1, 0.0, 0.94, 0.0],
+    "goldAnswer": "Start with src/cache/cacheWarmer.ts for the implementation and docs/cache-operations.md for the operational guidance. actions/cache-restore/action.yml is secondary workflow context if the behavior touches cache restore automation.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/cache/cacheWarmer.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/cache-operations.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/cache/cacheWarmer.ts",
+        "chunkId": "app-cache-warmer",
+        "mustMention": ["primeRepositoryCache", "CACHE_WARMUP_LIMIT"]
+      },
+      {
+        "repository": "acme/yoink-docs",
+        "filePath": "docs/cache-operations.md",
+        "chunkId": "docs-cache-ops",
+        "mustMention": ["Warm repository caches", "clear warmup queues"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  },
+  {
+    "id": "answer-12",
+    "repository": null,
+    "query": "if ranking fusion weights change where should I look",
+    "question": "Which implementation and documentation files matter if search fusion weights change?",
+    "intent": "change-impact",
+    "failureBucket": "path-boost",
+    "embedding": [0.0, 0.0, 0.08, 0.98, 0.0, 0.0, 0.95, 0.1],
+    "goldAnswer": "Inspect src/search/queryPlanner.ts for the implementation constants and blendSignals logic, and docs/search-tuning.md for the explanation of how hybrid retrieval is supposed to behave.",
+    "acceptableFiles": [
+      { "repository": "acme/yoink-app", "filePath": "src/search/queryPlanner.ts", "grade": 3 },
+      { "repository": "acme/yoink-docs", "filePath": "docs/search-tuning.md", "grade": 2 }
+    ],
+    "requiredEvidence": [
+      {
+        "repository": "acme/yoink-app",
+        "filePath": "src/search/queryPlanner.ts",
+        "chunkId": "app-search-planner",
+        "mustMention": ["RRF_K", "PATH_WEIGHT", "blendSignals"]
+      }
+    ],
+    "topKVariants": [1, 3, 5]
+  }
+]

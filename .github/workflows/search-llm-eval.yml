@@ -1,0 +1,115 @@
+name: Search LLM Eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tasks:
+        description: 'Run task-level evaluation in addition to answerability'
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    - cron: '0 7 * * *'
+
+jobs:
+  llm-eval:
+    name: Search answerability and tasks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SEARCH_EVAL_MODEL: ${{ vars.SEARCH_EVAL_MODEL || 'gpt-4.1-mini' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate OpenAI API key is configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "Missing OPENAI_API_KEY secret for Search LLM Eval." >&2
+            exit 1
+          fi
+
+      - name: Run offline benchmark
+        run: npm run test:search-eval
+
+      - name: Run answerability eval
+        run: npm run test:search-answerability
+
+      - name: Run task eval
+        if: ${{ github.event_name == 'schedule' || inputs.run_tasks != false }}
+        run: npm run test:search-tasks
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-llm-eval-artifacts
+          path: |
+            test-results/search-relevance-summary.json
+            test-results/search-answerability-summary.json
+            test-results/search-task-summary.json
+          if-no-files-found: warn
+
+      - name: Add eval summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('fs');
+
+          const read = (path) => {
+            if (!fs.existsSync(path)) return null;
+            return JSON.parse(fs.readFileSync(path, 'utf8'));
+          };
+
+          const relevance = read('test-results/search-relevance-summary.json');
+          const answerability = read('test-results/search-answerability-summary.json');
+          const tasks = read('test-results/search-task-summary.json');
+
+          console.log('## Search LLM eval');
+          console.log('');
+
+          if (relevance) {
+            const metrics = relevance.modes.hybrid.overall;
+            console.log('### Offline benchmark');
+            console.log('');
+            console.log(`- Queries: ${relevance.dataset.queryCount}`);
+            console.log(`- Hybrid Recall@1: ${Number(metrics.recallAt1).toFixed(3)}`);
+            console.log(`- Hybrid MRR@10: ${Number(metrics.mrrAt10).toFixed(3)}`);
+            console.log('');
+          }
+
+          if (answerability) {
+            console.log('### Answerability');
+            console.log('');
+            console.log(`- Prompts: ${answerability.dataset.promptCount}`);
+            for (const [topK, metrics] of Object.entries(answerability.byTopK)) {
+              console.log(`- Top ${topK}: exact=${Number(metrics.exactRate).toFixed(3)}, partial=${Number(metrics.partialRate).toFixed(3)}, hallucination=${Number(metrics.hallucinationRate).toFixed(3)}`);
+            }
+            console.log('');
+          }
+
+          if (tasks) {
+            console.log('### Tasks');
+            console.log('');
+            console.log(`- Tasks: ${tasks.dataset.taskCount}`);
+            console.log(`- Success rate: ${Number(tasks.metrics.successRate).toFixed(3)}`);
+            console.log(`- First search narrowed correctly: ${Number(tasks.metrics.firstSearchNarrowedRate).toFixed(3)}`);
+            console.log(`- Avg irrelevant files fetched: ${Number(tasks.metrics.averageIrrelevantFilesFetched).toFixed(3)}`);
+            console.log('');
+          }
+          EOF

@@ -25,16 +25,30 @@ export interface RetrievalDiagnostics {
 export interface RetrievalSearchOptions {
   mode?: RetrievalMode;
   includeDiagnostics?: boolean;
+  tuning?: Partial<RetrievalTuning>;
 }
 
-const RRF_K = 60;
-const OVER_FETCH = 3;
-const PATH_WEIGHT = 0.15;
+export interface RetrievalTuning {
+  rrfK: number;
+  overFetch: number;
+  pathWeight: number;
+  ftsPathWeight: number;
+  ftsContentWeight: number;
+}
+
+const DEFAULT_TUNING: RetrievalTuning = {
+  rrfK: 60,
+  overFetch: 3,
+  pathWeight: 0.15,
+  ftsPathWeight: 5.0,
+  ftsContentWeight: 1.0,
+};
 
 export class Retriever {
   constructor(
     private readonly chunkStore: ChunkStore,
     private readonly embeddingStore: EmbeddingStore,
+    private readonly tuning: RetrievalTuning = DEFAULT_TUNING,
   ) {}
 
   async search(
@@ -45,7 +59,8 @@ export class Retriever {
     options: RetrievalSearchOptions = {},
   ): Promise<RetrievalResult[]> {
     const mode = options.mode ?? 'hybrid';
-    const fetchK = topK * OVER_FETCH;
+    const tuning = { ...this.tuning, ...options.tuning };
+    const fetchK = topK * tuning.overFetch;
 
     const queryEmbedding =
       mode === 'fts-only'
@@ -63,8 +78,14 @@ export class Retriever {
       mode === 'vector-only'
         ? []
         : dataSourceIds.length > 0
-          ? this.chunkStore.searchFts(query, dataSourceIds, fetchK)
-          : this.chunkStore.searchFtsAll(query, fetchK);
+          ? this.chunkStore.searchFts(query, dataSourceIds, fetchK, {
+            filePathWeight: tuning.ftsPathWeight,
+            contentWeight: tuning.ftsContentWeight,
+          })
+          : this.chunkStore.searchFtsAll(query, fetchK, {
+            filePathWeight: tuning.ftsPathWeight,
+            contentWeight: tuning.ftsContentWeight,
+          });
 
     const vecRank = new Map(vecResults.map((r, i) => [r.chunkId, i + 1]));
     const ftsRank = new Map(ftsResults.map((r, i) => [r.chunkId, i + 1]));
@@ -93,13 +114,14 @@ export class Retriever {
       const keywordScore = ftsScore.get(id) ?? null;
       const vRank = vectorRank ?? penalty;
       const fRank = keywordRank ?? penalty;
-      const rrfScore = 1 / (RRF_K + vRank) + 1 / (RRF_K + fRank);
+      const rrfScore = 1 / (tuning.rrfK + vRank) + 1 / (tuning.rrfK + fRank);
       const pathScore = pathRelevance(chunk.filePath, queryTokens);
       const finalScore = rankResult(mode, {
         vectorDistance,
         keywordScore,
         rrfScore,
         pathScore,
+        pathWeight: tuning.pathWeight,
       });
 
       if (finalScore === null) continue;
@@ -143,6 +165,7 @@ function rankResult(
     keywordScore: number | null;
     rrfScore: number;
     pathScore: number;
+    pathWeight: number;
   },
 ): number | null {
   switch (mode) {
@@ -153,6 +176,6 @@ function rankResult(
     case 'hybrid-no-path':
       return scores.rrfScore;
     case 'hybrid':
-      return scores.rrfScore + PATH_WEIGHT * scores.pathScore;
+      return scores.rrfScore + scores.pathWeight * scores.pathScore;
   }
 }
