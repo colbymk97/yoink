@@ -72,10 +72,6 @@ function makeHandler(
     search: vi.fn().mockResolvedValue(searchResults),
   } as any;
 
-  const contextBuilder = {
-    format: vi.fn().mockReturnValue('formatted results'),
-  } as any;
-
   const chunkStore = {
     getDataSourceStats: vi.fn().mockReturnValue({
       fileCount: 10,
@@ -100,11 +96,10 @@ function makeHandler(
     configManager,
     providerRegistry,
     retriever,
-    contextBuilder,
     chunkStore,
     fetcher,
   );
-  return { handler, retriever, contextBuilder, providerRegistry, chunkStore, fetcher };
+  return { handler, retriever, providerRegistry, chunkStore, fetcher };
 }
 
 const dummyToken = { isCancellationRequested: false, onCancellationRequested: vi.fn() };
@@ -224,19 +219,84 @@ describe('ToolHandler', () => {
       expect(result.parts[0].value).toContain('embedding failed');
     });
 
-    it('formats retrieval results via contextBuilder', async () => {
+    it('returns structured inline JSON results', async () => {
       const ds1 = makeDs('ds-1');
-      const mockResults = [{ chunk: { id: 'c1' }, distance: 0.1 }];
-      const { handler, contextBuilder } = makeHandler([ds1], mockResults);
-      contextBuilder.format.mockReturnValue('**formatted**');
+      const mockResults = [
+        {
+          chunk: {
+            id: 'c1',
+            dataSourceId: 'ds-1',
+            filePath: 'src/index.ts',
+            startLine: 3,
+            endLine: 8,
+            content: 'export function test() { return 1; }',
+          },
+          distance: -0.15,
+        },
+      ];
+      const { handler } = makeHandler([ds1], mockResults);
 
       const result = await handler.handleGlobalSearch(
         { input: { query: 'test' } } as any,
         dummyToken as any,
       );
 
-      expect(contextBuilder.format).toHaveBeenCalledWith(mockResults);
-      expect(result.parts[0].value).toContain('**formatted**');
+      const payload = JSON.parse(result.parts[0].value);
+      expect(payload.results).toHaveLength(1);
+      expect(payload.results[0]).toMatchObject({
+        id: 'c1',
+        repository: 'test/ds-1',
+        filePath: 'src/index.ts',
+        startLine: 3,
+        endLine: 8,
+        resultType: 'code',
+      });
+      expect(payload.hasMore).toBe(false);
+      expect(payload.nextCursor).toBeNull();
+    });
+
+    it('supports cursor pagination with deterministic ordering', async () => {
+      const ds1 = makeDs('ds-1');
+      const mockResults = [
+        {
+          chunk: {
+            id: 'b',
+            dataSourceId: 'ds-1',
+            filePath: 'src/z.ts',
+            startLine: 1,
+            endLine: 1,
+            content: 'z',
+          },
+          distance: -0.2,
+        },
+        {
+          chunk: {
+            id: 'a',
+            dataSourceId: 'ds-1',
+            filePath: 'src/a.ts',
+            startLine: 1,
+            endLine: 1,
+            content: 'a',
+          },
+          distance: -0.2,
+        },
+      ];
+      const { handler } = makeHandler([ds1], mockResults);
+      const first = await handler.handleGlobalSearch(
+        { input: { query: 'test', pageSize: 1 } } as any,
+        dummyToken as any,
+      );
+      const firstPayload = JSON.parse(first.parts[0].value);
+      expect(firstPayload.hasMore).toBe(true);
+      expect(firstPayload.results[0].id).toBe('a');
+      expect(typeof firstPayload.nextCursor).toBe('string');
+
+      const second = await handler.handleGlobalSearch(
+        { input: { query: 'test', pageSize: 1, cursor: firstPayload.nextCursor } } as any,
+        dummyToken as any,
+      );
+      const secondPayload = JSON.parse(second.parts[0].value);
+      expect(secondPayload.results[0].id).toBe('b');
     });
   });
 

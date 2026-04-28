@@ -16,7 +16,6 @@ import { IngestionPipeline } from './ingestion/pipeline';
 import { ParserRegistry } from './ingestion/parserRegistry';
 import { ProgressTracker } from './ingestion/progressTracker';
 import { Retriever } from './retrieval/retriever';
-import { ContextBuilder } from './retrieval/contextBuilder';
 import { ToolHandler } from './tools/toolHandler';
 import { ToolManager } from './tools/toolManager';
 import { DataSourceTreeProvider, EmbeddingTreeProvider } from './ui/sidebar/sidebarProvider';
@@ -104,14 +103,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Retrieval
   const retriever = new Retriever(chunkStore, embeddingStore);
-  const contextBuilder = new ContextBuilder(configManager);
 
   // Tools
   const toolHandler = new ToolHandler(
     configManager,
     providerRegistry,
     retriever,
-    contextBuilder,
     chunkStore,
     fetcher,
   );

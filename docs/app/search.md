@@ -123,7 +123,7 @@ The FTS table is kept in sync with `chunks` by `ChunkStore` — every `insert`, 
 | `src/storage/database.ts` | Schema migrations including FTS5 table creation (v3) |
 | `src/embedding/embeddingProvider.ts` | Interface for embedding backends |
 | `src/embedding/registry.ts` | Builds concrete provider from VS Code settings |
-| `src/retrieval/contextBuilder.ts` | Formats `RetrievalResult[]` as markdown for Copilot |
+| `src/tools/toolHandler.ts` | Formats `yoink-search` responses as compact inline JSON payloads (including pagination cursor metadata) |
 
 ---
 

@@ -142,7 +142,6 @@ The first time the extension is actually useful.
 
 **Files:**
 - `src/retrieval/retriever.ts` — embed query, vector search, return chunks
-- `src/retrieval/contextBuilder.ts` — format results for Copilot
 - `src/tools/toolHandler.ts` — handle tool invocations
 - `src/tools/toolManager.ts` — register/unregister tools dynamically
 - `src/tools/globalSearchTool.ts` — metadata for the always-on tool
@@ -150,10 +149,10 @@ The first time the extension is actually useful.
 **Work:**
 1. Implement `Retriever.search()` — embed query, run vec0 search scoped to
    data source IDs, join with chunks to hydrate results
-2. Implement `ContextBuilder.format()` — produce markdown with file path,
-   line range, repo attribution, and code block per result
-3. Implement `ToolHandler.handle()` and `handleGlobalSearch()` — resolve
-   data sources, call retriever, format response
+2. Implement `ToolHandler.handleGlobalSearch()` — resolve data sources,
+   call retriever, and return compact structured JSON results
+3. Add pagination contract (`cursor`, `pageSize`, `hasMore`, `nextCursor`)
+   and deterministic ordering for repeated queries with equal scores
 4. Implement `ToolManager.registerAll()` — register global search tool +
    all user tools, handle config change events for dynamic re-registration
 5. Integration test: seed DB with known chunks/embeddings, invoke tool
@@ -161,7 +160,7 @@ The first time the extension is actually useful.
 
 **Acceptance:**
 - `yoink-search` tool is registered on activation
-- Querying the tool returns correctly formatted, ranked results
+- Querying the tool returns correctly ranked inline structured results
 - Adding/removing a tool in config triggers registration/disposal
 
 **Dependencies:** Slices 1, 2, 4

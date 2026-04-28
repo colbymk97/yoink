@@ -269,7 +269,7 @@
         ],
         "displayName": "Yoink: Search Repositories",
         "userDescription": "Search your indexed GitHub repositories for relevant code, documentation, or knowledge.",
-        "modelDescription": "Search indexed GitHub repositories using vector similarity. Returns relevant code snippets and documentation. Use 'repository' to filter by a specific repo (owner/repo format). Call yoink-list first to discover available repositories.",
+        "modelDescription": "Search indexed GitHub repositories and return compact inline structured JSON results. Supports pagination with cursor/pageSize and deterministic ordering. Use 'repository' to filter by a specific repo (owner/repo format). Call yoink-list first to discover available repositories.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -280,6 +280,16 @@
             "repository": {
               "type": "string",
               "description": "Optional: filter to a specific indexed repository in 'owner/repo' format (e.g. 'vercel/next.js'). Omit to search all indexed repositories."
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Optional pagination cursor returned by a previous yoink-search response."
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25,
+              "description": "Optional page size for inline results (default 5, max 25)."
             }
           },
           "required": [

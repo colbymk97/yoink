@@ -28,7 +28,12 @@ export class ToolManager implements vscode.Disposable {
     const disposable = vscode.lm.registerTool('yoink-search', {
       invoke: async (options, token) => {
         return this.toolHandler.handleGlobalSearch(
-          options as vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string }>,
+          options as vscode.LanguageModelToolInvocationOptions<{
+            query: string;
+            repository?: string;
+            cursor?: string;
+            pageSize?: number;
+          }>,
           token,
         );
       },

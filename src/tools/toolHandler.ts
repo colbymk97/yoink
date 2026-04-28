@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { ConfigManager } from '../config/configManager';
 import { EmbeddingProviderRegistry } from '../embedding/registry';
 import { Retriever } from '../retrieval/retriever';
-import { ContextBuilder } from '../retrieval/contextBuilder';
 import { ChunkStore } from '../storage/chunkStore';
 import { GitHubFetcher } from '../sources/github/githubFetcher';
 import { SETTING_KEYS } from '../config/settingsSchema';
@@ -11,6 +10,9 @@ import { buildFileTree } from './fileTreeBuilder';
 const MAX_FILE_BYTES = 500_000;
 const MAX_FILES = 10;
 const MAX_TOTAL_BYTES = 2_000_000;
+const DEFAULT_SEARCH_PAGE_SIZE = 5;
+const MAX_SEARCH_PAGE_SIZE = 25;
+const SEARCH_SNIPPET_MAX_CHARS = 320;
 
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'svg',
@@ -27,7 +29,6 @@ export class ToolHandler {
     private readonly configManager: ConfigManager,
     private readonly providerRegistry: EmbeddingProviderRegistry,
     private readonly retriever: Retriever,
-    private readonly contextBuilder: ContextBuilder,
     private readonly chunkStore: ChunkStore,
     private readonly fetcher: GitHubFetcher,
   ) {}
@@ -62,7 +63,12 @@ export class ToolHandler {
   }
 
   async handleGlobalSearch(
-    options: vscode.LanguageModelToolInvocationOptions<{ query: string; repository?: string }>,
+    options: vscode.LanguageModelToolInvocationOptions<{
+      query: string;
+      repository?: string;
+      cursor?: string;
+      pageSize?: number;
+    }>,
     _token: vscode.CancellationToken,
   ): Promise<vscode.LanguageModelToolResult> {
     const readySources = this.getSearchableSources();
@@ -102,7 +108,13 @@ export class ToolHandler {
       .map((ds) => this.describeSource(ds))
       .join(', ');
 
-    return this.executeSearch(options.input.query, targetIds, searchedRepos);
+    return this.executeSearch(
+      options.input.query,
+      targetIds,
+      searchedRepos,
+      options.input.cursor,
+      options.input.pageSize,
+    );
   }
 
   async handleGetFiles(
@@ -404,22 +416,72 @@ export class ToolHandler {
     query: string,
     dataSourceIds: string[],
     searchedRepos?: string,
+    cursor?: string,
+    pageSize?: number,
   ): Promise<vscode.LanguageModelToolResult> {
     try {
-      const topK = vscode.workspace
+      const configuredTopK = vscode.workspace
         .getConfiguration()
         .get<number>(SETTING_KEYS.SEARCH_TOP_K, 10);
+      const resolvedPageSize = normalizePageSize(pageSize);
+      const decodedCursor = decodeCursor(cursor);
+
+      if (decodedCursor && decodedCursor.query !== query) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'Invalid cursor: query changed. Restart pagination without cursor.',
+          ),
+        ]);
+      }
+
+      const scopeKey = buildScopeKey(dataSourceIds);
+      if (decodedCursor && decodedCursor.scopeKey !== scopeKey) {
+        return new vscode.LanguageModelToolResult([
+          new vscode.LanguageModelTextPart(
+            'Invalid cursor: repository scope changed. Restart pagination without cursor.',
+          ),
+        ]);
+      }
+
+      const offset = decodedCursor?.offset ?? 0;
+      const fetchTopK = Math.max(configuredTopK, offset + resolvedPageSize + 1);
 
       const provider = await this.providerRegistry.getProvider();
-      const results = await this.retriever.search(query, dataSourceIds, provider, topK);
-      const formatted = this.contextBuilder.format(results);
-
-      const header = searchedRepos
-        ? `*Searched repositories: ${searchedRepos}*\n\n`
-        : '';
+      const results = await this.retriever.search(query, dataSourceIds, provider, fetchTopK);
+      const stableResults = sortResultsStable(results);
+      const page = stableResults.slice(offset, offset + resolvedPageSize + 1);
+      const pageResults = page.slice(0, resolvedPageSize);
+      const hasMore = page.length > resolvedPageSize;
+      const nextCursor = hasMore
+        ? encodeCursor({
+          query,
+          scopeKey,
+          offset: offset + resolvedPageSize,
+        })
+        : null;
+      const payload = {
+        searchedRepositories: searchedRepos ?? '',
+        pageSize: resolvedPageSize,
+        resultCount: pageResults.length,
+        hasMore,
+        nextCursor,
+        results: pageResults.map((result) => {
+          const ds = this.configManager.getDataSource(result.chunk.dataSourceId);
+          return {
+            id: result.chunk.id,
+            repository: ds ? `${ds.owner}/${ds.repo}` : 'unknown',
+            filePath: result.chunk.filePath,
+            startLine: result.chunk.startLine,
+            endLine: result.chunk.endLine,
+            score: Number((-result.distance).toFixed(6)),
+            snippet: toSnippet(result.chunk.content),
+            resultType: classifyResultType(result.chunk.filePath),
+          };
+        }),
+      };
 
       return new vscode.LanguageModelToolResult([
-        new vscode.LanguageModelTextPart(header + formatted),
+        new vscode.LanguageModelTextPart(JSON.stringify(payload, null, 2)),
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -427,6 +489,72 @@ export class ToolHandler {
         new vscode.LanguageModelTextPart(`Search failed: ${message}`),
       ]);
     }
+  }
+}
+
+type SearchCursor = {
+  query: string;
+  scopeKey: string;
+  offset: number;
+};
+
+function normalizePageSize(pageSize?: number): number {
+  if (!Number.isFinite(pageSize)) return DEFAULT_SEARCH_PAGE_SIZE;
+  return Math.max(1, Math.min(MAX_SEARCH_PAGE_SIZE, Math.floor(pageSize as number)));
+}
+
+function toSnippet(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().slice(0, SEARCH_SNIPPET_MAX_CHARS);
+}
+
+function classifyResultType(filePath: string): string {
+  if (filePath.includes('.github/workflows/')) return 'workflow';
+  if (filePath.endsWith('action.yml') || filePath.endsWith('action.yaml')) return 'action';
+  if (/\.(md|mdx)$/i.test(filePath)) return 'documentation';
+  if (/(^|\/)(package\.json|tsconfig\.json|eslint\.config|\.eslintrc|\.prettierrc)/i.test(filePath)) {
+    return 'config';
+  }
+  return 'code';
+}
+
+function sortResultsStable(
+  results: import('../retrieval/retriever').RetrievalResult[],
+): import('../retrieval/retriever').RetrievalResult[] {
+  return [...results].sort((a, b) => {
+    const scoreDiff = b.distance - a.distance;
+    if (scoreDiff !== 0) return scoreDiff;
+    return (
+      a.chunk.filePath.localeCompare(b.chunk.filePath) ||
+      a.chunk.startLine - b.chunk.startLine ||
+      a.chunk.endLine - b.chunk.endLine ||
+      a.chunk.id.localeCompare(b.chunk.id)
+    );
+  });
+}
+
+function buildScopeKey(dataSourceIds: string[]): string {
+  return [...dataSourceIds].sort().join(',');
+}
+
+function encodeCursor(cursor: SearchCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeCursor(cursor?: string): SearchCursor | null {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as SearchCursor;
+    if (
+      typeof parsed.query === 'string' &&
+      typeof parsed.scopeKey === 'string' &&
+      Number.isInteger(parsed.offset) &&
+      parsed.offset >= 0
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
