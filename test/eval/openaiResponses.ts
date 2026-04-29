@@ -13,12 +13,12 @@ export function loadOpenAIResponsesConfigFromEnv(): OpenAIResponsesConfig | null
 
   return {
     apiKey,
-    model: process.env.SEARCH_EVAL_MODEL?.trim() || 'gpt-4.1-mini',
+    model: process.env.SEARCH_EVAL_MODEL?.trim() || 'gpt-5-mini',
     baseUrl: (process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1').replace(/\/$/, ''),
     organization: process.env.OPENAI_ORGANIZATION?.trim() || undefined,
     project: process.env.OPENAI_PROJECT?.trim() || undefined,
     supportsReasoningEffort: supportsReasoningEffort(
-      process.env.SEARCH_EVAL_MODEL?.trim() || 'gpt-4.1-mini',
+      process.env.SEARCH_EVAL_MODEL?.trim() || 'gpt-5-mini',
     ),
   };
 }

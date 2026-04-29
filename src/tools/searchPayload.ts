@@ -41,8 +41,8 @@ export function buildSearchPayload(
 ): SearchPayload {
   const resolvedPageSize = normalizeSearchPageSize(options.pageSize);
   const offset = options.offset ?? 0;
-  const stableResults = sortSearchResultsStable(results);
-  const page = stableResults.slice(offset, offset + resolvedPageSize + 1);
+  const rerankedResults = rerankSearchResultsByFile(results);
+  const page = rerankedResults.slice(offset, offset + resolvedPageSize + 1);
   const pageResults = page.slice(0, resolvedPageSize);
   const hasMore = page.length > resolvedPageSize;
 
@@ -97,4 +97,75 @@ export function sortSearchResultsStable(
       a.chunk.id.localeCompare(b.chunk.id)
     );
   });
+}
+
+export function rerankSearchResultsByFile(
+  results: RetrievalResult[],
+): RetrievalResult[] {
+  const stableResults = sortSearchResultsStable(results);
+  const uniqueFileResults: RetrievalResult[] = [];
+  const deferredDuplicates: RetrievalResult[] = [];
+  const seenFiles = new Set<string>();
+
+  for (const result of stableResults) {
+    const fileKey = getResultFileKey(result);
+    if (seenFiles.has(fileKey)) {
+      deferredDuplicates.push(result);
+      continue;
+    }
+
+    seenFiles.add(fileKey);
+    uniqueFileResults.push(result);
+  }
+
+  return [...uniqueFileResults, ...deferredDuplicates];
+}
+
+export function countUniqueResultFiles(
+  results: RetrievalResult[],
+  limit: number,
+): number {
+  return collectResultFileCounts(results, limit).uniqueFiles;
+}
+
+export function countDuplicateResultFiles(
+  results: RetrievalResult[],
+  limit: number,
+): number {
+  return collectResultFileCounts(results, limit).duplicates;
+}
+
+export function computeDuplicateShare(
+  results: RetrievalResult[],
+  limit: number,
+): number {
+  const consideredResults = Math.min(limit, results.length);
+  if (consideredResults === 0) return 0;
+  return countDuplicateResultFiles(results, limit) / consideredResults;
+}
+
+function collectResultFileCounts(
+  results: RetrievalResult[],
+  limit: number,
+): { uniqueFiles: number; duplicates: number } {
+  const seenFiles = new Set<string>();
+  let duplicates = 0;
+
+  for (const result of results.slice(0, limit)) {
+    const fileKey = getResultFileKey(result);
+    if (seenFiles.has(fileKey)) {
+      duplicates++;
+      continue;
+    }
+    seenFiles.add(fileKey);
+  }
+
+  return {
+    uniqueFiles: seenFiles.size,
+    duplicates,
+  };
+}
+
+function getResultFileKey(result: RetrievalResult): string {
+  return `${result.chunk.dataSourceId}:${result.chunk.filePath}`;
 }

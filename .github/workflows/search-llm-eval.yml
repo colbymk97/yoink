@@ -20,7 +20,7 @@ jobs:
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      SEARCH_EVAL_MODEL: ${{ vars.SEARCH_EVAL_MODEL || 'gpt-4.1-mini' }}
+      SEARCH_EVAL_MODEL: ${{ vars.SEARCH_EVAL_MODEL || 'gpt-5-mini' }}
 
     steps:
       - uses: actions/checkout@v4

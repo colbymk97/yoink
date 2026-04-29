@@ -51,6 +51,7 @@ describe('search relevance benchmark', () => {
     expect(report).toContain('Search relevance benchmark');
     expect(report).toContain('semantic-paraphrase');
     expect(report).toContain('workflow-action');
+    expect(report).toContain('diversity (hybrid payload)');
     console.log(`\n${report}`);
 
     expect(existsSync(summary.artifactPath)).toBe(true);
@@ -60,20 +61,21 @@ describe('search relevance benchmark', () => {
   });
 
   it('keeps benchmark diagnostics and expected dataset counts', () => {
-    expect(summary.dataset.queryCount).toBe(44);
+    expect(summary.dataset.queryCount).toBe(46);
     expect(summary.dataset.fileCount).toBe(18);
     expect(summary.dataset.chunkCount).toBe(19);
     expect(summary.dataset.queryCountByIntent['semantic-paraphrase']).toBe(10);
     expect(summary.dataset.queryCountByIntent['identifier-exact']).toBe(8);
     expect(summary.dataset.queryCountByIntent['path-structure']).toBe(6);
-    expect(summary.dataset.queryCountByIntent['docs-howto']).toBe(6);
-    expect(summary.dataset.queryCountByIntent['workflow-action']).toBe(6);
+    expect(summary.dataset.queryCountByIntent['docs-howto']).toBe(7);
+    expect(summary.dataset.queryCountByIntent['workflow-action']).toBe(7);
     expect(summary.dataset.queryCountByIntent['implementation-location']).toBe(4);
     expect(summary.dataset.queryCountByIntent['change-impact']).toBe(4);
 
     const hybridQuery = summary.modes.hybrid.queries.find((query) => query.id === 'semantic-01');
     expect(hybridQuery?.topFiles[0].diagnostics?.mode).toBe('hybrid');
     expect(hybridQuery?.topResultType).toBe('code');
+    expect(hybridQuery?.diversity.duplicateFileCrowdingCountTop5).toBeGreaterThan(0);
   });
 
   it('shows hybrid search beating vector-only on exact identifiers', () => {
@@ -129,5 +131,30 @@ describe('search relevance benchmark', () => {
       'src/auth/sessionManager.ts',
       'src/security/tokenVerifier.ts',
     ]);
+  });
+
+  it('tracks duplicate crowding before rerank and improved file diversity after rerank', () => {
+    const semanticQuery = summary.modes.hybrid.queries.find((query) => query.id === 'semantic-01');
+    expect(semanticQuery).toBeDefined();
+    expect(semanticQuery?.diversity.rawUniqueFilesInTop3).toBeLessThan(
+      semanticQuery!.diversity.uniqueFilesInTop3,
+    );
+    expect(semanticQuery?.diversity.duplicateFileCrowdingCountTop5).toBeGreaterThan(0);
+    expect(semanticQuery?.diversity.firstPageDuplicateShare).toBeLessThanOrEqual(
+      semanticQuery!.diversity.rawFirstPageDuplicateShare,
+    );
+  });
+
+  it('surfaces duplicate-crowding queries as a measurable weakness bucket', () => {
+    const duplicateCrowding = summary.modes.hybrid.diversityByFailureBucket['duplicate-crowding'];
+    expect(duplicateCrowding).toBeDefined();
+    expect(duplicateCrowding.duplicateFileCrowdingCountTop5).toBeGreaterThan(0);
+    expect(duplicateCrowding.uniqueFilesInTop5).toBeGreaterThanOrEqual(
+      duplicateCrowding.rawUniqueFilesInTop5,
+    );
+
+    const crowdedQueries = summary.weaknessReport.topDuplicateCrowdingQueries.map((query) => query.queryId);
+    expect(crowdedQueries).toContain('semantic-01');
+    expect(crowdedQueries).toContain('implementation-01');
   });
 });

@@ -4,7 +4,7 @@
     "repository": "acme/yoink-app",
     "query": "where is the session cookie created after login",
     "intent": "implementation-location",
-    "failureBucket": "semantic-ranking",
+    "failureBucket": "duplicate-crowding",
     "embedding": [0.98, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     "relevantFiles": [
       { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 3 },

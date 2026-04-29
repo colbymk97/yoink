@@ -1,6 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { classifySearchResultType } from '../../src/tools/searchPayload';
+import {
+  classifySearchResultType,
+  computeDuplicateShare,
+  countDuplicateResultFiles,
+  countUniqueResultFiles,
+  rerankSearchResultsByFile,
+  sortSearchResultsStable,
+} from '../../src/tools/searchPayload';
 import { RetrievalMode, RetrievalResult, RetrievalTuning, Retriever } from '../../src/retrieval/retriever';
 import { DataSourceStore } from '../../src/storage/dataSourceStore';
 import { EmbeddingStore } from '../../src/storage/embeddingStore';
@@ -51,7 +58,38 @@ export interface SearchEvalQueryRun {
   duplicateFileCrowdingCount: number;
   topResultType: string | null;
   topResultRepoType: SearchEvalRepoType | null;
+  diversity: SearchEvalDiversityDiagnostics;
   topFiles: SearchEvalFileResult[];
+}
+
+export interface SearchEvalDiversityDiagnostics {
+  rawUniqueFilesInTop1: number;
+  rawUniqueFilesInTop3: number;
+  rawUniqueFilesInTop5: number;
+  uniqueFilesInTop1: number;
+  uniqueFilesInTop3: number;
+  uniqueFilesInTop5: number;
+  duplicateFileCrowdingCountTop5: number;
+  duplicateFileCrowdingCountTop10: number;
+  rawSecondaryRelevantFileInTop5: boolean | null;
+  secondaryRelevantFileInTop5: boolean | null;
+  rawFirstPageDuplicateShare: number;
+  firstPageDuplicateShare: number;
+}
+
+export interface SearchEvalDiversitySummary {
+  rawUniqueFilesInTop1: number;
+  rawUniqueFilesInTop3: number;
+  rawUniqueFilesInTop5: number;
+  uniqueFilesInTop1: number;
+  uniqueFilesInTop3: number;
+  uniqueFilesInTop5: number;
+  duplicateFileCrowdingCountTop5: number;
+  duplicateFileCrowdingCountTop10: number;
+  rawSecondaryRelevantFileInTop5: number;
+  secondaryRelevantFileInTop5: number;
+  rawFirstPageDuplicateShare: number;
+  firstPageDuplicateShare: number;
 }
 
 export interface SearchEvalModeSummary {
@@ -59,6 +97,9 @@ export interface SearchEvalModeSummary {
   byIntent: Record<SearchEvalIntent, SearchEvalMetrics>;
   byFailureBucket: Record<string, SearchEvalMetrics>;
   byRepoType: Record<string, SearchEvalMetrics>;
+  diversity: SearchEvalDiversitySummary;
+  diversityByIntent: Record<SearchEvalIntent, SearchEvalDiversitySummary>;
+  diversityByFailureBucket: Record<string, SearchEvalDiversitySummary>;
   queries: SearchEvalQueryRun[];
 }
 
@@ -67,6 +108,11 @@ export interface SearchEvalWeaknessReport {
   topFailedRepositories: Array<{ repository: string; misses: number }>;
   topMisleadingResultTypes: Array<{ resultType: string; count: number }>;
   topPathPenaltyQueries: Array<{ queryId: string; recallAt1Gap: number }>;
+  topDuplicateCrowdingQueries: Array<{
+    queryId: string;
+    duplicateFileCrowdingCountTop5: number;
+    secondaryRelevantFileInTop5: boolean | null;
+  }>;
 }
 
 export interface SearchEvalSummary {
@@ -150,7 +196,7 @@ export async function runSearchEvaluation(
 
         for (const query of dataset.queries) {
           const dataSourceIds = resolveQueryScope(query.repository, dataSourceIdByRepo);
-          const rawResults = await retriever.search(
+          const searchResults = await retriever.search(
             query.query,
             dataSourceIds,
             provider,
@@ -161,8 +207,16 @@ export async function runSearchEvaluation(
               tuning: runConfig.tuning,
             },
           );
+          const rawResults = sortSearchResultsStable(searchResults);
+          const returnedResults = rerankSearchResultsByFile(rawResults);
           const topFiles = collapseResultsToFiles(rawResults, repoByDataSourceId);
           const metrics = scoreFileRanking(query, topFiles, topK);
+          const diversity = scoreFileDiversity(
+            query,
+            rawResults,
+            returnedResults,
+            repoByDataSourceId,
+          );
           const topResult = topFiles[0];
           queries.push({
             id: query.id,
@@ -172,11 +226,12 @@ export async function runSearchEvaluation(
             failureBucket: query.failureBucket ?? 'unclassified',
             metrics,
             chunkHitAt5: scoreChunkHitAt5(query, rawResults),
-            duplicateFileCrowdingCount: computeDuplicateFileCrowding(rawResults, topK),
+            duplicateFileCrowdingCount: diversity.duplicateFileCrowdingCountTop5,
             topResultType: topResult ? classifySearchResultType(topResult.filePath) : null,
             topResultRepoType: topResult
               ? (repoTypeByRepo.get(topResult.repository) ?? null)
               : null,
+            diversity,
             topFiles: topFiles.slice(0, topK),
           });
         }
@@ -205,6 +260,17 @@ export async function runSearchEvaluation(
                 if (!firstRelevant) return 'unknown';
                 return repoTypeByRepo.get(firstRelevant.repository) ?? 'unknown';
               },
+            ),
+            diversity: averageDiversity(queries),
+            diversityByIntent: buildGroupedDiversity(
+              INTENTS,
+              queries,
+              (queryRun) => queryRun.intent,
+            ),
+            diversityByFailureBucket: buildGroupedDiversityFromValues(
+              uniqueValues(queries.map((queryRun) => queryRun.failureBucket)),
+              queries,
+              (queryRun) => queryRun.failureBucket,
             ),
             queries,
           } satisfies SearchEvalModeSummary,
@@ -303,6 +369,23 @@ export function formatSearchEvalReport(summary: SearchEvalSummary): string {
   for (const item of summary.weaknessReport.topPathPenaltyQueries) {
     lines.push(`- path penalty: ${item.queryId} (R@1 gap ${item.recallAt1Gap.toFixed(3)})`);
   }
+  for (const item of summary.weaknessReport.topDuplicateCrowdingQueries) {
+    lines.push(
+      `- duplicate crowding: ${item.queryId} ` +
+      `(raw dup@5 ${item.duplicateFileCrowdingCountTop5}, ` +
+      `secondary@5 ${formatNullableBoolean(item.secondaryRelevantFileInTop5)})`,
+    );
+  }
+
+  const duplicateCrowdingSummary = summary.modes.hybrid.diversityByFailureBucket['duplicate-crowding'];
+  if (duplicateCrowdingSummary) {
+    lines.push('');
+    lines.push('diversity (hybrid payload)');
+    lines.push(formatDiversityTable([
+      ['overall', summary.modes.hybrid.diversity],
+      ['duplicate-crowding', duplicateCrowdingSummary],
+    ]));
+  }
 
   return lines.join('\n');
 }
@@ -340,6 +423,36 @@ function formatMetricTable(
 
 function formatMetric(value: number): string {
   return value.toFixed(3);
+}
+
+function formatNullableBoolean(value: boolean | null): string {
+  if (value === null) return 'n/a';
+  return value ? 'yes' : 'no';
+}
+
+function formatDiversityTable(
+  rows: Array<[label: string, metrics: SearchEvalDiversitySummary]>,
+): string {
+  const table = [
+    ['scope', 'rawU@5', 'U@5', 'dup@5', 'dup@10', 'secondary@5', 'dupShare'],
+    ...rows.map(([label, metrics]) => [
+      label,
+      formatMetric(metrics.rawUniqueFilesInTop5),
+      formatMetric(metrics.uniqueFilesInTop5),
+      formatMetric(metrics.duplicateFileCrowdingCountTop5),
+      formatMetric(metrics.duplicateFileCrowdingCountTop10),
+      formatMetric(metrics.secondaryRelevantFileInTop5),
+      formatMetric(metrics.firstPageDuplicateShare),
+    ]),
+  ];
+
+  const widths = table[0].map((_, columnIndex) =>
+    Math.max(...table.map((row) => row[columnIndex].length)),
+  );
+
+  return table
+    .map((row) => row.map((cell, index) => cell.padEnd(widths[index])).join('  '))
+    .join('\n');
 }
 
 function scoreFileRanking(
@@ -405,6 +518,28 @@ function scoreChunkHitAt5(query: SearchEvalQuery, results: RetrievalResult[]): b
   return results.slice(0, 5).some((result) => relevant.has(result.chunk.id));
 }
 
+function scoreFileDiversity(
+  query: SearchEvalQuery,
+  rawResults: RetrievalResult[],
+  returnedResults: RetrievalResult[],
+  repoByDataSourceId: ReadonlyMap<string, string>,
+): SearchEvalDiversityDiagnostics {
+  return {
+    rawUniqueFilesInTop1: countUniqueResultFiles(rawResults, 1),
+    rawUniqueFilesInTop3: countUniqueResultFiles(rawResults, 3),
+    rawUniqueFilesInTop5: countUniqueResultFiles(rawResults, 5),
+    uniqueFilesInTop1: countUniqueResultFiles(returnedResults, 1),
+    uniqueFilesInTop3: countUniqueResultFiles(returnedResults, 3),
+    uniqueFilesInTop5: countUniqueResultFiles(returnedResults, 5),
+    duplicateFileCrowdingCountTop5: countDuplicateResultFiles(rawResults, 5),
+    duplicateFileCrowdingCountTop10: countDuplicateResultFiles(rawResults, 10),
+    rawSecondaryRelevantFileInTop5: hasSecondaryRelevantFileInTop(query, rawResults, 5, repoByDataSourceId),
+    secondaryRelevantFileInTop5: hasSecondaryRelevantFileInTop(query, returnedResults, 5, repoByDataSourceId),
+    rawFirstPageDuplicateShare: computeDuplicateShare(rawResults, 5),
+    firstPageDuplicateShare: computeDuplicateShare(returnedResults, 5),
+  };
+}
+
 function averageMetrics(queries: SearchEvalQueryRun[]): SearchEvalMetrics {
   const denominator = queries.length || 1;
 
@@ -416,6 +551,37 @@ function averageMetrics(queries: SearchEvalQueryRun[]): SearchEvalMetrics {
     mrrAt10: sumMetric(queries, (query) => query.metrics.mrrAt10) / denominator,
     ndcgAt10: sumMetric(queries, (query) => query.metrics.ndcgAt10) / denominator,
     successAt5: sumMetric(queries, (query) => query.metrics.successAt5) / denominator,
+  };
+}
+
+function averageDiversity(queries: SearchEvalQueryRun[]): SearchEvalDiversitySummary {
+  const denominator = queries.length || 1;
+  const secondaryDenominator =
+    queries.filter((query) => query.diversity.secondaryRelevantFileInTop5 !== null).length || 1;
+  const rawSecondaryDenominator =
+    queries.filter((query) => query.diversity.rawSecondaryRelevantFileInTop5 !== null).length || 1;
+
+  return {
+    rawUniqueFilesInTop1: sumDiversity(queries, (query) => query.diversity.rawUniqueFilesInTop1) / denominator,
+    rawUniqueFilesInTop3: sumDiversity(queries, (query) => query.diversity.rawUniqueFilesInTop3) / denominator,
+    rawUniqueFilesInTop5: sumDiversity(queries, (query) => query.diversity.rawUniqueFilesInTop5) / denominator,
+    uniqueFilesInTop1: sumDiversity(queries, (query) => query.diversity.uniqueFilesInTop1) / denominator,
+    uniqueFilesInTop3: sumDiversity(queries, (query) => query.diversity.uniqueFilesInTop3) / denominator,
+    uniqueFilesInTop5: sumDiversity(queries, (query) => query.diversity.uniqueFilesInTop5) / denominator,
+    duplicateFileCrowdingCountTop5:
+      sumDiversity(queries, (query) => query.diversity.duplicateFileCrowdingCountTop5) / denominator,
+    duplicateFileCrowdingCountTop10:
+      sumDiversity(queries, (query) => query.diversity.duplicateFileCrowdingCountTop10) / denominator,
+    rawSecondaryRelevantFileInTop5:
+      sumOptionalBooleanMetric(queries, (query) => query.diversity.rawSecondaryRelevantFileInTop5) /
+      rawSecondaryDenominator,
+    secondaryRelevantFileInTop5:
+      sumOptionalBooleanMetric(queries, (query) => query.diversity.secondaryRelevantFileInTop5) /
+      secondaryDenominator,
+    rawFirstPageDuplicateShare:
+      sumDiversity(queries, (query) => query.diversity.rawFirstPageDuplicateShare) / denominator,
+    firstPageDuplicateShare:
+      sumDiversity(queries, (query) => query.diversity.firstPageDuplicateShare) / denominator,
   };
 }
 
@@ -440,11 +606,46 @@ function buildGroupedMetricsFromValues<T extends string>(
   return buildGroupedMetrics(values, queries, pick);
 }
 
+function buildGroupedDiversity<T extends string>(
+  values: readonly T[],
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => T,
+): Record<T, SearchEvalDiversitySummary> {
+  return Object.fromEntries(
+    values.map((value) => [
+      value,
+      averageDiversity(queries.filter((query) => pick(query) === value)),
+    ]),
+  ) as Record<T, SearchEvalDiversitySummary>;
+}
+
+function buildGroupedDiversityFromValues<T extends string>(
+  values: readonly T[],
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => T,
+): Record<T, SearchEvalDiversitySummary> {
+  return buildGroupedDiversity(values, queries, pick);
+}
+
 function sumMetric(
   queries: SearchEvalQueryRun[],
   pick: (query: SearchEvalQueryRun) => number,
 ): number {
   return queries.reduce((sum, query) => sum + pick(query), 0);
+}
+
+function sumDiversity(
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => number,
+): number {
+  return queries.reduce((sum, query) => sum + pick(query), 0);
+}
+
+function sumOptionalBooleanMetric(
+  queries: SearchEvalQueryRun[],
+  pick: (query: SearchEvalQueryRun) => boolean | null,
+): number {
+  return queries.reduce((sum, query) => sum + (pick(query) ? 1 : 0), 0);
 }
 
 function resolveQueryScope(
@@ -463,18 +664,25 @@ function toFileKey(repository: string, filePath: string): string {
   return `${repository}:${filePath}`;
 }
 
-function computeDuplicateFileCrowding(results: RetrievalResult[], topK: number): number {
-  const seen = new Set<string>();
-  let duplicates = 0;
-  for (const result of results.slice(0, topK)) {
-    const key = `${result.chunk.dataSourceId}:${result.chunk.filePath}`;
-    if (seen.has(key)) {
-      duplicates++;
-      continue;
-    }
-    seen.add(key);
-  }
-  return duplicates;
+function hasSecondaryRelevantFileInTop(
+  query: SearchEvalQuery,
+  results: RetrievalResult[],
+  limit: number,
+  repoByDataSourceId: ReadonlyMap<string, string>,
+): boolean | null {
+  if (query.relevantFiles.length < 2) return null;
+
+  const secondaryFiles = new Set(
+    query.relevantFiles
+      .slice(1)
+      .map((file) => toFileKey(file.repository, file.filePath)),
+  );
+
+  return results.slice(0, limit).some((result) => {
+    const repository = repoByDataSourceId.get(result.chunk.dataSourceId);
+    if (!repository) return false;
+    return secondaryFiles.has(toFileKey(repository, result.chunk.filePath));
+  });
 }
 
 function buildWeaknessReport(
@@ -522,6 +730,20 @@ function buildWeaknessReport(
       .slice(0, 5)
     : [];
 
+  const topDuplicateCrowdingQueries = [...hybrid.queries]
+    .filter((queryRun) => queryRun.diversity.duplicateFileCrowdingCountTop5 > 0)
+    .sort((a, b) =>
+      b.diversity.duplicateFileCrowdingCountTop5 - a.diversity.duplicateFileCrowdingCountTop5 ||
+      Number(a.diversity.secondaryRelevantFileInTop5) -
+        Number(b.diversity.secondaryRelevantFileInTop5),
+    )
+    .slice(0, 5)
+    .map((queryRun) => ({
+      queryId: queryRun.id,
+      duplicateFileCrowdingCountTop5: queryRun.diversity.duplicateFileCrowdingCountTop5,
+      secondaryRelevantFileInTop5: queryRun.diversity.secondaryRelevantFileInTop5,
+    }));
+
   return {
     topFailedIntents,
     topFailedRepositories: [...repositoryMisses.entries()]
@@ -533,6 +755,7 @@ function buildWeaknessReport(
       .sort((a, b) => b.count - a.count)
       .slice(0, 5),
     topPathPenaltyQueries,
+    topDuplicateCrowdingQueries,
   };
 }
 

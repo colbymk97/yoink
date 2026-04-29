@@ -445,7 +445,11 @@ export class ToolHandler {
       }
 
       const offset = decodedCursor?.offset ?? 0;
-      const fetchTopK = Math.max(configuredTopK, offset + resolvedPageSize + 1);
+      const diversityOverFetch = Math.max(resolvedPageSize, 5);
+      const fetchTopK = Math.max(
+        configuredTopK,
+        offset + resolvedPageSize + diversityOverFetch,
+      );
 
       const provider = await this.providerRegistry.getProvider();
       const results = await this.retriever.search(query, dataSourceIds, provider, fetchTopK);

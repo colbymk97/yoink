@@ -4,6 +4,7 @@
     "repository": null,
     "query": "where do we turn a raw login token into a browser session",
     "intent": "semantic-paraphrase",
+    "failureBucket": "duplicate-crowding",
     "embedding": [0.98, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     "relevantFiles": [
       { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 3 },
@@ -347,6 +348,19 @@
     ]
   },
   {
+    "id": "docs-07",
+    "repository": null,
+    "query": "after GitHub sign in how do we turn access into a browser session",
+    "intent": "docs-howto",
+    "failureBucket": "duplicate-crowding",
+    "embedding": [0.93, 0.05, 0.0, 0.0, 0.0, 0.0, 0.88, 0.0],
+    "relevantFiles": [
+      { "repository": "acme/yoink-docs", "filePath": "docs/authentication-guide.md", "grade": 3 },
+      { "repository": "acme/yoink-app", "filePath": "src/auth/sessionManager.ts", "grade": 2 },
+      { "repository": "acme/yoink-app", "filePath": "src/security/tokenVerifier.ts", "grade": 1 }
+    ]
+  },
+  {
     "id": "workflow-01",
     "repository": "acme/yoink-platform",
     "query": "preview deploy workflow",
@@ -406,6 +420,18 @@
     "embedding": [0.0, 0.18, 0.82, 0.0, 0.1, 0.0, 0.18, 0.95],
     "relevantFiles": [
       { "repository": "acme/yoink-actions", "filePath": "actions/cache-restore/action.yml", "grade": 3 }
+    ]
+  },
+  {
+    "id": "workflow-07",
+    "repository": null,
+    "query": "which release automation files should I inspect first",
+    "intent": "workflow-action",
+    "failureBucket": "task-navigation",
+    "embedding": [0.0, 0.08, 0.0, 0.0, 0.84, 0.0, 0.18, 0.99],
+    "relevantFiles": [
+      { "repository": "acme/yoink-platform", "filePath": ".github/workflows/release.yml", "grade": 3 },
+      { "repository": "acme/yoink-actions", "filePath": "actions/publish-extension/action.yml", "grade": 2 }
     ]
   }
 ]

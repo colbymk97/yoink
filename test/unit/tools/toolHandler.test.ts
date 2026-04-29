@@ -298,6 +298,132 @@ describe('ToolHandler', () => {
       const secondPayload = JSON.parse(second.parts[0].value);
       expect(secondPayload.results[0].id).toBe('b');
     });
+
+    it('returns a file-diverse first page before duplicate chunks', async () => {
+      const ds1 = makeDs('ds-1');
+      const mockResults = [
+        {
+          chunk: {
+            id: 'a-1',
+            dataSourceId: 'ds-1',
+            filePath: 'src/auth/sessionManager.ts',
+            startLine: 1,
+            endLine: 12,
+            content: 'session primary',
+          },
+          distance: -0.1,
+        },
+        {
+          chunk: {
+            id: 'a-2',
+            dataSourceId: 'ds-1',
+            filePath: 'src/auth/sessionManager.ts',
+            startLine: 13,
+            endLine: 24,
+            content: 'session duplicate',
+          },
+          distance: -0.11,
+        },
+        {
+          chunk: {
+            id: 'b-1',
+            dataSourceId: 'ds-1',
+            filePath: 'src/security/tokenVerifier.ts',
+            startLine: 1,
+            endLine: 8,
+            content: 'token verifier',
+          },
+          distance: -0.12,
+        },
+        {
+          chunk: {
+            id: 'c-1',
+            dataSourceId: 'ds-1',
+            filePath: 'docs/authentication-guide.md',
+            startLine: 1,
+            endLine: 8,
+            content: 'auth guide',
+          },
+          distance: -0.13,
+        },
+      ];
+      const { handler } = makeHandler([ds1], mockResults);
+
+      const result = await handler.handleGlobalSearch(
+        { input: { query: 'test', pageSize: 3 } } as any,
+        dummyToken as any,
+      );
+
+      const payload = JSON.parse(result.parts[0].value);
+      expect(payload.results.map((entry: any) => entry.id)).toEqual(['a-1', 'b-1', 'c-1']);
+      expect(payload.hasMore).toBe(true);
+    });
+
+    it('continues pagination through deferred duplicate chunks deterministically', async () => {
+      const ds1 = makeDs('ds-1');
+      const mockResults = [
+        {
+          chunk: {
+            id: 'a-1',
+            dataSourceId: 'ds-1',
+            filePath: 'src/auth/sessionManager.ts',
+            startLine: 1,
+            endLine: 12,
+            content: 'session primary',
+          },
+          distance: -0.1,
+        },
+        {
+          chunk: {
+            id: 'a-2',
+            dataSourceId: 'ds-1',
+            filePath: 'src/auth/sessionManager.ts',
+            startLine: 13,
+            endLine: 24,
+            content: 'session duplicate',
+          },
+          distance: -0.11,
+        },
+        {
+          chunk: {
+            id: 'b-1',
+            dataSourceId: 'ds-1',
+            filePath: 'src/security/tokenVerifier.ts',
+            startLine: 1,
+            endLine: 8,
+            content: 'token verifier',
+          },
+          distance: -0.12,
+        },
+        {
+          chunk: {
+            id: 'c-1',
+            dataSourceId: 'ds-1',
+            filePath: 'docs/authentication-guide.md',
+            startLine: 1,
+            endLine: 8,
+            content: 'auth guide',
+          },
+          distance: -0.13,
+        },
+      ];
+      const { handler } = makeHandler([ds1], mockResults);
+
+      const first = await handler.handleGlobalSearch(
+        { input: { query: 'test', pageSize: 2 } } as any,
+        dummyToken as any,
+      );
+      const firstPayload = JSON.parse(first.parts[0].value);
+
+      const second = await handler.handleGlobalSearch(
+        { input: { query: 'test', pageSize: 2, cursor: firstPayload.nextCursor } } as any,
+        dummyToken as any,
+      );
+      const secondPayload = JSON.parse(second.parts[0].value);
+
+      expect(firstPayload.results.map((entry: any) => entry.id)).toEqual(['a-1', 'b-1']);
+      expect(secondPayload.results.map((entry: any) => entry.id)).toEqual(['c-1', 'a-2']);
+    });
   });
 
   describe('handleList', () => {
