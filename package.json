@@ -2,7 +2,7 @@
   "name": "yoink",
   "displayName": "Yoink",
   "description": "Do you want remote repository context for Copilot without MCP? Yoink it! Yarr!",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "yoink",
   "repository": {
     "type": "git",
